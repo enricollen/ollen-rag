@@ -1,0 +1,11 @@
+watsonx:
+  - ibm/slate-125m-english-rtrvr
+  - ibm/slate-30m-english-rtrvr
+  - ibm/granite-embedding-278m-multilingual
+fastembed:
+  - BAAI/bge-small-en-v1.5
+  - BAAI/bge-base-en-v1.5
+  - BAAI/bge-large-en-v1.5
+  - sentence-transformers/all-MiniLM-L6-v2
+  - jinaai/jina-embeddings-v2-base-code
+  - intfloat/multilingual-e5-large
