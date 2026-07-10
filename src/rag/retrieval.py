@@ -2,6 +2,7 @@
 fused-score floor, and cross-encoder reranking."""
 from functools import lru_cache
 from pathlib import Path
+import torch
 import yaml
 from llama_index.core.postprocessor import SentenceTransformerRerank, SimilarityPostprocessor
 from llama_index.core.retrievers import BaseRetriever
@@ -90,9 +91,24 @@ def get_reranker(top_n: int | None = None, model: str | None = None) -> Sentence
         raise ValueError(f"Unknown reranker model '{model}'. Available: {sorted(load_reranker_model_choices().values())}")
     resolved = model or settings.reranker_model
     if resolved not in _rerankers:
-        _rerankers[resolved] = SentenceTransformerRerank(model=resolved, top_n=top_n or settings.rerank_top_n)
+        reranker = SentenceTransformerRerank(model=resolved, top_n=top_n or settings.rerank_top_n)
+        _force_identity_activation(reranker)
+        _rerankers[resolved] = reranker
     _rerankers[resolved].top_n = top_n or settings.rerank_top_n
     return _rerankers[resolved]
+
+def _force_identity_activation(reranker: SentenceTransformerRerank) -> None:
+    """Make every cross-encoder emit raw logits, whatever the model ships.
+
+    sentence-transformers chooses a CrossEncoder's activation per model: models/reranker ships a
+    config_sentence_transformers.json declaring Identity, while BAAI/bge-reranker-v2-m3 ships none
+    and so falls back to Sigmoid for its single label. node.score would then be a logit for one
+    model and a probability for another, and generation._relevance() would sigmoid an
+    already-sigmoided score. Pinning Identity keeps exactly one sigmoid, applied downstream.
+    """
+    cross_encoder = getattr(reranker, "_model", None)
+    if cross_encoder is not None and hasattr(cross_encoder, "activation_fn"):
+        cross_encoder.activation_fn = torch.nn.Identity()
 
 def get_threshold_postprocessor(threshold: float | None = None) -> SimilarityPostprocessor | None:
     """Score floor on fused hybrid scores (min_max-normalized, 0-1); None falls back to
@@ -185,5 +201,9 @@ def retrieve_debug(
         # Threshold only the fused leg; BM25/dense legs keep raw scores for debugging
         hybrid_nodes = thresholder.postprocess_nodes(hybrid_nodes)
 
-    reranked_nodes = get_reranker(rerank_top_n, reranker_model).postprocess_nodes(hybrid_nodes, query_str=query) if hybrid_nodes else []
+    # SentenceTransformerRerank assigns node.score in place, so hand it fresh NodeWithScore
+    # wrappers: otherwise the "hybrid" leg we return below would carry the cross-encoder's
+    # logits instead of the fused 0-1 scores it is documented to expose.
+    rerank_input = [NodeWithScore(node=n.node, score=n.score) for n in hybrid_nodes]
+    reranked_nodes = get_reranker(rerank_top_n, reranker_model).postprocess_nodes(rerank_input, query_str=query) if hybrid_nodes else []
     return {"bm25": bm25_nodes, "dense": dense_nodes, "hybrid": hybrid_nodes, "reranked": reranked_nodes}

@@ -1,2 +1,6 @@
-default: models/reranker
+# Cross-encoders selectable per request. All are single-label BCE models, so their raw logits
+# become relevance probabilities via sigmoid (see generation._relevance).
+default: cross-encoder/mmarco-mMiniLMv2-L12-H384-v1
+mmarco-mMiniLM: cross-encoder/mmarco-mMiniLMv2-L12-H384-v1
+ms-marco-MiniLM-local: models/reranker
 ms-marco-MiniLM: cross-encoder/ms-marco-MiniLM-L-6-v2

@@ -3,4 +3,7 @@ __pycache__/
 *.pyc
 .env
 .cache/
-.pytest_cache/models/
+.pytest_cache/
+chroma_db/
+models
+docs

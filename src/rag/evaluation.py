@@ -152,12 +152,16 @@ def evaluate(
     similarity_threshold: float | None = None,
     use_rerank: bool = True,
     index_name: str | None = None,
+    reranker_model: str | None = None,
 ) -> EvalReport:
     """Run every case through the real retrieval pipeline (bucket-filtered) and score it.
 
     When index_name is given it overrides each case's own index/strategy, so the whole
     dataset runs against one chosen index (e.g. an index named by embedding model rather
-    than by chunking strategy). Otherwise the per-case index_name/strategy is used."""
+    than by chunking strategy). Otherwise the per-case index_name/strategy is used.
+
+    reranker_model selects the cross-encoder for this run (None = the configured default),
+    which is what makes two runs over the same dataset a like-for-like reranker comparison."""
     results = []
     for case in dataset.cases:
         nodes = retrieve(
@@ -169,6 +173,7 @@ def evaluate(
             raw_filters=[{"key": "bucket", "value": case.bucket, "operator": "=="}],
             similarity_threshold=similarity_threshold,
             use_rerank=use_rerank,
+            reranker_model=reranker_model,
         )
         matched = sum(1 for e in case.expected if any(_matches(e, n) for n in nodes))
         first_rank = next(
@@ -193,6 +198,7 @@ def evaluate(
     params = {
         "top_k": top_k, "rerank_top_n": rerank_top_n,
         "similarity_threshold": similarity_threshold, "use_rerank": use_rerank,
+        "reranker_model": reranker_model,
     }
     return EvalReport(results=results, params=params)
 
@@ -207,12 +213,13 @@ def main() -> None:
     parser.add_argument("--threshold", type=float, default=None, help="Fused-score floor (overrides settings)")
     parser.add_argument("--no-rerank", action="store_true", help="Score the raw fused ranking without the cross-encoder")
     parser.add_argument("--index-name", default=None, help="Run all cases against this index, overriding per-case index/strategy")
+    parser.add_argument("--reranker-model", default=None, help="Cross-encoder to rerank with (label or model id from config/reranker_models.yaml)")
     args = parser.parse_args()
     report = evaluate(
         load_dataset(args.dataset),
         top_k=args.top_k, rerank_top_n=args.rerank_top_n,
         similarity_threshold=args.threshold, use_rerank=not args.no_rerank,
-        index_name=args.index_name,
+        index_name=args.index_name, reranker_model=args.reranker_model,
     )
     print(report.format_table())
 

@@ -65,6 +65,28 @@ def test_generate_forwards_reranker_model(monkeypatch, mocked_generation):
     assert captured["model"] == "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
 
+def test_generate_source_score_is_sigmoid_of_rerank_logit(monkeypatch, mocked_generation):
+    """The cross-encoder emits an unbounded logit; sources[].score exposes it as the calibrated
+    relevance probability sigmoid(logit), so consumers get a 0-1 number. Monotonic, so the
+    reranker's ordering is unchanged."""
+    import math
+    class _LogitRetriever:
+        def retrieve(self, query):
+            return [NodeWithScore(node=TextNode(text="Il gatto dorme.", metadata={}), score=-5.3484)]
+    monkeypatch.setattr(generation, "build_backend_retriever", lambda idx, k, raw_filters=None, filter_condition="and": _LogitRetriever())
+    result = generation.generate("Dove dorme il gatto?")
+    assert result["sources"][0]["score"] == pytest.approx(1 / (1 + math.exp(5.3484)))
+    assert 0.0 < result["sources"][0]["score"] < 1.0
+
+def test_generate_source_score_none_stays_none(monkeypatch, mocked_generation):
+    """A node with no score must not become sigmoid(0)=0.5, which would invent a relevance signal."""
+    class _NoScoreRetriever:
+        def retrieve(self, query):
+            return [NodeWithScore(node=TextNode(text="Il gatto dorme.", metadata={}), score=None)]
+    monkeypatch.setattr(generation, "build_backend_retriever", lambda idx, k, raw_filters=None, filter_condition="and": _NoScoreRetriever())
+    result = generation.generate("Dove dorme il gatto?")
+    assert result["sources"][0]["score"] is None
+
 def test_generate_source_score_is_plain_float(monkeypatch, mocked_generation):
     # SentenceTransformerRerank assigns numpy.float32 scores; generate() must
     # coerce them to plain float so the API layer can JSON-serialize sources.
