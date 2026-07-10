@@ -65,6 +65,20 @@ def test_evaluate_metrics(monkeypatch):
     assert captured_filters[0] == [{"key": "bucket", "value": "b1", "operator": "=="}]
     assert captured_filters[1] == [{"key": "bucket", "value": "b2", "operator": "=="}]
 
+def test_evaluate_forwards_reranker_model(monkeypatch):
+    """Comparing two rerankers on one golden dataset is the harness's reason to exist,
+    so evaluate() must pass reranker_model down to retrieve() unchanged."""
+    captured = []
+    monkeypatch.setattr(eval_mod, "retrieve", lambda query, **kwargs: captured.append(kwargs.get("reranker_model")) or [])
+    eval_mod.evaluate(eval_mod.parse_dataset(_VALID), reranker_model="BAAI/bge-reranker-v2-m3")
+    assert captured == ["BAAI/bge-reranker-v2-m3", "BAAI/bge-reranker-v2-m3"]
+
+def test_evaluate_reranker_model_recorded_in_params(monkeypatch):
+    """The report must name the reranker it used, or two runs are indistinguishable."""
+    monkeypatch.setattr(eval_mod, "retrieve", lambda query, **kwargs: [])
+    report = eval_mod.evaluate(eval_mod.parse_dataset(_VALID), reranker_model="models/reranker")
+    assert report.to_dict()["params"]["reranker_model"] == "models/reranker"
+
 def test_evaluate_per_bucket_split(monkeypatch):
     monkeypatch.setattr(eval_mod, "retrieve", lambda query, **kwargs: [_node("a.pdf")] if query == "q1" else [])
     report = eval_mod.evaluate(eval_mod.parse_dataset(_VALID))

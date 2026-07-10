@@ -155,9 +155,12 @@ def test_query_forwards_reranker_model(client, monkeypatch):
     assert captured["reranker_model"] == "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
 def test_config_exposes_reranker_model_choices(client):
+    """The 'default' choice must name the reranker the service actually uses, rather than a
+    hard-coded model id that silently drifts whenever the default is swapped."""
+    from src.settings import get_settings
     body = client.get("/api/v1/config").json()
     assert "default" in body["reranker_model_choices"]
-    assert body["reranker_model_choices"]["default"] == "models/reranker"
+    assert body["reranker_model_choices"]["default"] == get_settings().reranker_model
 
 def test_domain_error_maps_to_http(client, monkeypatch):
     def boom(query, **kwargs):
