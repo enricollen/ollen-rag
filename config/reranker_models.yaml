@@ -1,0 +1,2 @@
+default: models/reranker
+ms-marco-MiniLM: cross-encoder/ms-marco-MiniLM-L-6-v2

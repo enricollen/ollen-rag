@@ -1,0 +1,13 @@
+# Keyword extraction prompt used by the ingest-time KeywordEnricher transform.
+# One call per chunk; the response is parsed defensively (see src/rag/enrichment.py).
+name: keywords
+description: Estrae keyword di ricerca da un chunk per ampliare il recall BM25
+template: |
+  Estrai da 5 a 10 parole chiave o brevi frasi di ricerca dal testo seguente.
+  Usa la stessa lingua del testo. Includi anche sinonimi o termini standard che un
+  utente potrebbe cercare anche se non compaiono letteralmente nel testo.
+  Rispondi SOLO con le parole chiave separate da virgola, su una sola riga,
+  senza numerazione e senza spiegazioni.
+  Testo:
+  {chunk_text}
+  Parole chiave:

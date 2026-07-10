@@ -1,0 +1,43 @@
+# docker-compose.yml — local dev stack: service + OpenSearch + dashboards
+services:
+  opensearch:
+    image: opensearchproject/opensearch:3.2.0
+    environment:
+      - discovery.type=single-node
+      - DISABLE_SECURITY_PLUGIN=true
+      - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
+    ports:
+      # Host port 9201 (not 9200): avoids colliding with other local OpenSearch
+      # containers (e.g. openrag's) that may already hold 9200.
+      - "9201:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:3.2.0
+    environment:
+      - OPENSEARCH_HOSTS=["http://opensearch:9200"]
+      - DISABLE_SECURITY_DASHBOARDS_PLUGIN=true
+    ports:
+      - "5601:5601"
+    depends_on:
+      - opensearch
+
+  ollen-rag-service:
+    build: .
+    env_file: .env
+    environment:
+      - OLLEN_RAG_OPENSEARCH_URL=http://opensearch:9200
+    ports:
+      - "8000:8000"
+    depends_on:
+      opensearch:
+        condition: service_healthy
+
+volumes:
+  opensearch-data:

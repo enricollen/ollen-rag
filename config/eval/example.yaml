@@ -1,0 +1,20 @@
+description: >
+  Example golden retrieval dataset. Each case is a query + a bucket + one or more
+  expected matches, where a match is a source file_name and a verbatim substring
+  that must appear in a retrieved chunk's text (case-insensitive substring match).
+  Bucket is mandatory per case (documents are partitioned by bucket at retrieval time).
+
+  Run: python -m src.rag.evaluation --dataset config/eval/example.yaml --top-k 5
+
+cases:
+  - query: "What is this project for?"
+    bucket: example_bucket
+    expected:
+      - file_name: example_document.pdf
+        contains: "replace this with a verbatim substring from your indexed document"
+
+  - query: "How is data organized?"
+    bucket: example_bucket
+    expected:
+      - file_name: example_document.pdf
+        contains: "another verbatim substring to match against a retrieved chunk"
