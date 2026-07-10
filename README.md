@@ -14,7 +14,7 @@ Supporting modules: `src/settings.py` (env-driven configuration), `src/factories
 
 Everything pluggable follows the same decorator-registry pattern: a factory in `src/factories/` defines the interface, concrete providers in `src/providers/` self-register on import, and each `create_*` lazy-imports `src.providers` for the registration side effect. Providers are grouped **by capability**:
 
-- `src/providers/llm/` — `LLMConnectorFactory`; `ConnectorLLM` adapts the configured connector to the llama_index interface `CitationQueryEngine` needs (watsonx).
+- `src/providers/llm/` — `LLMConnectorFactory`; `ConnectorLLM` adapts the configured connector to the llama_index interface `CitationQueryEngine` needs (watsonx native, plus `litellm`, `litellm-watsonx`, `litellm-ollama` via LiteLLM).
 - `src/providers/embeddings/` — `EmbeddingFactory` (watsonx, fastembed).
 - `src/providers/vector_stores/` — `VectorStoreFactory`; a **store-agnostic** `VectorStoreBackend` interface (`src/factories/vector_store.py`) that owns retrieval, ingest writes, and all index admin, hiding llama_index behind each backend. Backends declare their `supported_query_modes` (dense/sparse/hybrid); an unsupported requested mode gracefully falls back to the richest supported one. OpenSearch is the only backend today; the layer is designed so Chroma/Qdrant become add-a-file recipes.
 
@@ -193,7 +193,14 @@ All settings live in `src/settings.py` and are overridable via `OLLEN_RAG_*` env
 | `OLLEN_RAG_WATSONX_TEMPERATURE` | `0.1` | LLM temperature |
 | `OLLEN_RAG_WATSONX_REPETITION_PENALTY` | `1.15` | Penalizes repeated tokens. Too high (>1.3) causes garbled/merged-word output |
 | `OLLEN_RAG_EMBEDDING_PROVIDER` | `watsonx` | `watsonx` or `fastembed` |
-| `OLLEN_RAG_LLM_PROVIDER` | `watsonx` | LLM provider |
+| `OLLEN_RAG_LLM_PROVIDER` | `watsonx` | `watsonx` (native SDK), `litellm` (generic), `litellm-watsonx`, `litellm-ollama` |
+| `OLLEN_RAG_LITELLM_MODEL` | (empty) | Full LiteLLM model string for the generic provider, e.g. `openai/gpt-4o` |
+| `OLLEN_RAG_LITELLM_API_BASE` | (empty) | Endpoint override for the generic provider |
+| `OLLEN_RAG_LITELLM_API_KEY` | (empty) | API key for the generic provider |
+| `OLLEN_RAG_LITELLM_MAX_NEW_TOKENS` | `800` | Generation cap for `litellm` and `litellm-ollama` |
+| `OLLEN_RAG_LITELLM_TEMPERATURE` | `0.1` | Sampling temperature for `litellm` and `litellm-ollama` |
+| `OLLEN_RAG_OLLAMA_API_BASE` | `http://localhost:11434` | Local Ollama endpoint |
+| `OLLEN_RAG_OLLAMA_MODEL` | `llama3.1` | Bare Ollama model tag; the connector adds the `ollama/` prefix |
 | `OLLEN_RAG_FASTEMBED_MODEL_NAME` | `BAAI/bge-small-en-v1.5` | fastembed model (local embeddings) |
 | `OLLEN_RAG_VECTOR_STORE` | `opensearch` | Vector-store backend: `opensearch` (dense+sparse+hybrid) or `chroma` (embedded, dense-only). Process-global — one running service = one store, no cross-DB mixing. |
 | `OLLEN_RAG_CHROMA_PATH` | `./chroma_db` | On-disk location for the embedded Chroma store (when `OLLEN_RAG_VECTOR_STORE=chroma`) |
@@ -227,4 +234,11 @@ All settings live in `src/settings.py` and are overridable via `OLLEN_RAG_*` env
 # Integration tests (require a running OpenSearch, e.g. docker compose up)
 .venv/bin/python -m pytest -m integration
 ```
+
+## TODO
+
+- Add [Docling](https://github.com/docling-project/docling) as an additional parser option.
+- Broaden file-type support (`.txt`, `.pptx`, `.docx`, etc.) beyond what the current parser covers.
+- use litellm also for embeddings/rerankers
+- Add Qdrant as a vector store backend.
 

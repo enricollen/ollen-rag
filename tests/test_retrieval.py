@@ -1,5 +1,7 @@
 """Tests for backend-driven hybrid retrieval, embed-model resolution, and reranking wiring."""
+from types import SimpleNamespace
 import pytest
+import torch
 from llama_index.core.schema import NodeWithScore, TextNode
 from src.exceptions import VectorStoreError
 from src.factories.vector_store import QueryMode
@@ -45,11 +47,26 @@ class _FakeReranker:
     def postprocess_nodes(self, nodes, query_str=None):
         return sorted(nodes, key=lambda n: n.score, reverse=True)[: self.top_n]
 
+class _MutatingReranker:
+    """Faithful stand-in for llama_index's SentenceTransformerRerank, which assigns
+    `node.score = score` on the nodes it is handed (mutating the caller's list in place)
+    and returns cross-encoder logits, not fused 0-1 scores."""
+    def __init__(self, top_n):
+        self.top_n = top_n
+    def postprocess_nodes(self, nodes, query_str=None):
+        for offset, node in enumerate(nodes):
+            node.score = -10.0 - offset
+        return sorted(nodes, key=lambda n: n.score, reverse=True)[: self.top_n]
+
 class _FakeSentenceTransformerRerank:
-    """Stands in for llama_index's SentenceTransformerRerank: records constructor args, no model load."""
+    """Stands in for llama_index's SentenceTransformerRerank: records constructor args, no model load.
+
+    Carries a `_model` with a Sigmoid activation, like the CrossEncoder that sentence-transformers
+    builds for a single-label model that ships no config_sentence_transformers.json (e.g. bge-m3)."""
     def __init__(self, model, top_n):
         self.model = model
         self.top_n = top_n
+        self._model = SimpleNamespace(activation_fn=torch.nn.Sigmoid())
 
 def _patch_embed(monkeypatch):
     monkeypatch.setattr(retrieval, "create_embedding_model", lambda settings=None: _StubEmbed())
@@ -108,6 +125,19 @@ def test_retrieve_debug_returns_all_legs(monkeypatch):
     assert [n.node.text for n in result["dense"]] == ["dense-a", "dense-b"]
     assert [n.node.text for n in result["reranked"]] == ["high", "low"]
     assert result["hybrid"] == per_mode[QueryMode.HYBRID]
+
+def test_retrieve_debug_hybrid_leg_keeps_fused_scores(monkeypatch):
+    """The reranker overwrites NodeWithScore.score in place, so retrieve_debug must not feed it
+    the same objects it returns as the pre-rerank "hybrid" leg: consumers would then read
+    cross-encoder logits (negative, unbounded) where a fused 0-1 score is documented."""
+    per_mode = {QueryMode.HYBRID: [_node("high", 1.0), _node("low", 0.25)]}
+    monkeypatch.setattr(retrieval, "create_backend", lambda settings=None: _FakeBackend(per_mode=per_mode))
+    monkeypatch.setattr(retrieval, "get_reranker", lambda top_n=None, model=None: _MutatingReranker(top_n or 2))
+    _patch_embed(monkeypatch)
+    result = retrieval.retrieve_debug("q?", rerank_top_n=2)
+    assert [n.score for n in result["hybrid"]] == [1.0, 0.25]
+    # The reranked leg still carries the cross-encoder's own scores
+    assert [n.score for n in result["reranked"]] == [-10.0, -11.0]
 
 def test_retrieve_debug_empties_unsupported_legs(monkeypatch):
     """A dense-only backend must serve dense but leave bm25/hybrid empty."""
@@ -194,6 +224,18 @@ def test_get_reranker_caches_per_model(monkeypatch):
     assert b.model == "cross-encoder/ms-marco-MiniLM-L-6-v2"
     assert a_again is a  # cached, same instance
     assert a_again.top_n == 7  # top_n still updates on cache hit
+    retrieval._rerankers.clear()
+
+def test_get_reranker_forces_identity_activation(monkeypatch):
+    """sentence-transformers picks the activation per model: models/reranker ships a config
+    declaring Identity (raw logits), while bge-reranker-v2-m3 ships none and so defaults to
+    Sigmoid (probabilities). node.score would then mean different things per model, and
+    generation._relevance() would sigmoid an already-sigmoided score. Pin it to Identity so
+    every reranker emits raw logits and exactly one sigmoid is applied downstream."""
+    retrieval._rerankers.clear()
+    monkeypatch.setattr(retrieval, "SentenceTransformerRerank", _FakeSentenceTransformerRerank)
+    reranker = retrieval.get_reranker(top_n=3, model="models/reranker")
+    assert isinstance(reranker._model.activation_fn, torch.nn.Identity)
     retrieval._rerankers.clear()
 
 def test_get_reranker_none_model_uses_settings_default(monkeypatch):

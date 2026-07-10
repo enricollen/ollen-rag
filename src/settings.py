@@ -17,9 +17,20 @@ class Settings(BaseSettings):
     # Belt-and-braces against repeated tokens on the chat endpoint too; the chat template's
     # own stop token is what actually ends generation (see WatsonxChatLLM).
     watsonx_repetition_penalty: float = 1.15
+    # LiteLLM generic provider: one call surface for any vendor LiteLLM supports.
+    # litellm_model is the full LiteLLM model string, e.g. "openai/gpt-4o"; empty means
+    # the generic "litellm" provider is unconfigured and will refuse to construct.
+    litellm_model: str = ""
+    litellm_api_base: str = ""
+    litellm_api_key: str = ""
+    litellm_max_new_tokens: int = 800
+    litellm_temperature: float = 0.1
+    # Ollama (served via LiteLLM); model is the bare tag, the "ollama/" prefix is added by the connector
+    ollama_api_base: str = "http://localhost:11434"
+    ollama_model: str = "llama3.1"
     # provider selection
     embedding_provider: str = "watsonx"  # watsonx | fastembed
-    llm_provider: str = "watsonx"
+    llm_provider: str = "watsonx"  # watsonx | litellm | litellm-watsonx | litellm-ollama
     fastembed_model_name: str = "BAAI/bge-small-en-v1.5"
     # Local cache for fastembed ONNX model files (coherent with reranker_model under models/);
     # persists downloads so the model is fetched from the hub once, then reused offline.
@@ -51,7 +62,9 @@ class Settings(BaseSettings):
     # Score floor on fused hybrid scores (min_max-normalized 0-1); 0.0 disables the filter
     similarity_threshold: float = 0.0
     rerank_top_n: int = 4
-    reranker_model: str = "models/reranker"
+    # Multilingual cross-encoder (mMARCO, Apache-2.0). The English-only ms-marco model it replaced
+    # measurably degrades ranking on a non-English corpus; see config/reranker_models.yaml.
+    reranker_model: str = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
     # generation
     citation_chunk_size: int = 512
     prompts_dir: str = "config/prompts"
