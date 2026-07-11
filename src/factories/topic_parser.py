@@ -5,7 +5,7 @@ from typing import Any, List, Optional, Sequence
 from llama_index.core.bridge.pydantic import Field, PrivateAttr
 from llama_index.core.schema import BaseNode, Document
 from llama_index.node_parser.topic import TopicNodeParser
-from src.logging_config import OllenLogger
+from src.logger import OllenLogger
 
 log = OllenLogger("chunker")
 
