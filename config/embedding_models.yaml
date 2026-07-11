@@ -1,3 +1,5 @@
+# Curated embedding models per provider, for the ingestion UI and per-request validation.
+# A provider mapped to an empty list accepts any model string (see src/factories/model_catalog.py).
 watsonx:
   - ibm/slate-125m-english-rtrvr
   - ibm/slate-30m-english-rtrvr
@@ -9,3 +11,15 @@ fastembed:
   - sentence-transformers/all-MiniLM-L6-v2
   - jinaai/jina-embeddings-v2-base-code
   - intfloat/multilingual-e5-large
+# Same watsonx models, reached through LiteLLM instead of the native SDK. Model ids stay bare:
+# the "watsonx/" prefix is added at call time, so an index built here is interchangeable with one
+# built by the native "watsonx" provider.
+litellm-watsonx:
+  - ibm/slate-125m-english-rtrvr
+  - ibm/slate-30m-english-rtrvr
+  - ibm/granite-embedding-278m-multilingual
+litellm-ollama:
+  - nomic-embed-text
+  - mxbai-embed-large
+# Free-form: any LiteLLM model string, e.g. openai/text-embedding-3-small
+litellm: []

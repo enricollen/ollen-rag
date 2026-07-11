@@ -4,7 +4,7 @@ from llama_index.embeddings.ibm import WatsonxEmbeddings
 from src.factories.embeddings import EmbeddingFactory
 from src.settings import Settings
 
-@EmbeddingFactory.register("watsonx")
+@EmbeddingFactory.register("watsonx", model_field="watsonx_embedding_model_id")
 def create_watsonx_embedding(settings: Settings) -> BaseEmbedding:
     """Registered builder: watsonx.ai embeddings via the llamaindex IBM connector."""
     return WatsonxEmbeddings(

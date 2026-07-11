@@ -15,6 +15,11 @@ class EmbeddingError(OllenRagError):
     error_code = "EMBEDDING_ERROR"
     status_code = 502
 
+class RerankError(OllenRagError):
+    """Reranker provider failed to score documents."""
+    error_code = "RERANK_ERROR"
+    status_code = 502
+
 class VectorStoreError(OllenRagError):
     """OpenSearch (or other vector store) operation failed."""
     error_code = "VECTOR_STORE_ERROR"

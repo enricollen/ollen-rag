@@ -46,7 +46,7 @@ class FastEmbedEmbedding(BaseEmbedding):
         # fastembed has no native async API; delegate to the sync implementation.
         return self._get_text_embedding(text)
 
-@EmbeddingFactory.register("fastembed")
+@EmbeddingFactory.register("fastembed", model_field="fastembed_model_name")
 def create_fastembed_embedding(settings: Settings) -> BaseEmbedding:
     """Registered builder: CPU embeddings from the configured fastembed model."""
     return FastEmbedEmbedding(model_name=settings.fastembed_model_name, cache_dir=settings.fastembed_cache_dir)

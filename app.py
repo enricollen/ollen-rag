@@ -7,9 +7,9 @@ from fastmcp.utilities.lifespan import combine_lifespans
 from src.api.routes import router
 from src.exceptions import OllenRagError
 from src.factories.vector_store import create_backend
-from src.logging_config import OllenLogger
+from src.logger import OllenLogger
 from src.mcp_server import mcp
-from src.rag.retrieval import get_reranker
+from src.factories.reranker import create_reranker
 from src.settings import get_settings
 
 logger = OllenLogger("app")
@@ -23,7 +23,9 @@ async def app_lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("Could not warm up vector store backend at startup: %s", exc)
     try:
-        get_reranker()  # loads cross-encoder weights once; cached for the process lifetime
+        # Building the connector is cheap; warmup() is what pulls a local model's weights off
+        # disk. Both are cached for the process lifetime.
+        create_reranker().connector.warmup()
         logger.info("Reranker model loaded")
     except Exception as exc:
         logger.warning("Could not pre-load reranker at startup: %s", exc)
@@ -33,14 +35,19 @@ def create_app() -> FastAPI:
     """Assemble the FastAPI application: REST routes, error handlers, mounted MCP server."""
     OllenLogger.setup(get_settings())
     s = get_settings()
+    # Resolve each component to the model its *active provider* actually uses (same source the UI
+    # banner reads), so the startup line reflects the live config rather than a fixed field.
+    import src.providers  # noqa: F401  populate registries before the factory model lookups
+    from src.config.summary import component_summary
+    a = component_summary(s)
     logger.info(
-        "components: llm=%s/%s embedding=%s/%s reranker=%s "
+        "components: llm=%s/%s embedding=%s/%s reranker=%s/%s vector_store=%s "
         "chunking=%s(size=%d,overlap=%d) rerank_top_n=%d retrieval_top_k=%d",
-        s.llm_provider, s.watsonx_llm_model_id,
-        s.embedding_provider, s.watsonx_embedding_model_id if s.embedding_provider == "watsonx" else s.fastembed_model_name,
-        s.reranker_model,
-        s.default_chunking_strategy, s.chunk_size, s.chunk_overlap,
-        s.rerank_top_n, s.retrieval_top_k,
+        a["llm"]["provider"], a["llm"]["model"],
+        a["embedding"]["provider"], a["embedding"]["model"],
+        a["reranker"]["provider"], a["reranker"]["model"], a["vector_store"],
+        a["chunking"]["strategy"], a["chunking"]["chunk_size"], a["chunking"]["chunk_overlap"],
+        a["rerank_top_n"], a["retrieval_top_k"],
     )
     mcp_app = mcp.http_app(path="/")
     app = FastAPI(

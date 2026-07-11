@@ -37,3 +37,30 @@ def test_litellm_settings_env_override(monkeypatch):
     get_settings.cache_clear()
     assert get_settings().litellm_model == "openai/gpt-4o"
     get_settings.cache_clear()
+def test_litellm_embedding_and_rerank_defaults():
+    """New embedding/rerank fields must all default so existing .env files keep working untouched."""
+    s = Settings(_env_file=None)
+    assert s.litellm_embedding_model == ""
+    assert s.litellm_rerank_model == ""
+    assert s.ollama_embedding_model == "nomic-embed-text"
+    assert s.reranker_provider == "sentence-transformers"
+    assert s.watsonx_reranker_model_id == "cross-encoder/ms-marco-minilm-l-12-v2"
+
+def test_generic_litellm_credentials_fall_back_to_the_shared_pair():
+    """One key covers the single-vendor case; the per-modality fields only exist for split hosts."""
+    s = Settings(_env_file=None, litellm_api_key="shared", litellm_api_base="http://shared")
+    assert s.effective_litellm_embedding_api_key == "shared"
+    assert s.effective_litellm_embedding_api_base == "http://shared"
+    assert s.effective_litellm_rerank_api_key == "shared"
+    assert s.effective_litellm_rerank_api_base == "http://shared"
+
+def test_per_modality_credentials_win_over_the_shared_pair():
+    """Embeddings on a local vLLM while generation stays on a hosted API."""
+    s = Settings(
+        _env_file=None, litellm_api_key="shared", litellm_api_base="http://shared",
+        litellm_embedding_api_base="http://vllm:8000", litellm_rerank_api_key="rerank-key",
+    )
+    assert s.effective_litellm_embedding_api_base == "http://vllm:8000"
+    assert s.effective_litellm_embedding_api_key == "shared"
+    assert s.effective_litellm_rerank_api_key == "rerank-key"
+    assert s.effective_litellm_rerank_api_base == "http://shared"

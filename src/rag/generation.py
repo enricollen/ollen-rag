@@ -1,28 +1,15 @@
 """Cited answer generation: hybrid retrieval + rerank + CitationQueryEngine + watsonx LLM."""
-import math
 from llama_index.core.query_engine import CitationQueryEngine
 from src.exceptions import GenerationError, OllenRagError
 from src.factories.llm import create_llm
+from src.factories.reranker import create_reranker
 from src.factories.vector_store import build_index_name
-from src.logging_config import OllenLogger
+from src.logger import OllenLogger
 from src.prompts import load_prompt
-from src.rag.retrieval import build_backend_retriever, get_reranker, get_threshold_postprocessor
+from src.rag.retrieval import build_backend_retriever, get_threshold_postprocessor
 from src.settings import get_settings
 
 log = OllenLogger("generation")
-
-def _relevance(logit: float) -> float:
-    """Map a cross-encoder logit to the 0-1 relevance probability it was trained to predict.
-
-    The reranker is a single-label BertForSequenceClassification trained with binary
-    cross-entropy, so sigmoid() is its calibrated output. Monotonic, so source ordering is
-    untouched. Computed branch-wise to stay finite for large-magnitude logits, where a naive
-    1/(1+exp(-x)) overflows.
-    """
-    if logit >= 0:
-        return 1.0 / (1.0 + math.exp(-logit))
-    odds = math.exp(logit)
-    return odds / (1.0 + odds)
 
 def generate(
     query: str,
@@ -34,6 +21,7 @@ def generate(
     filter_condition: str = "and",
     prompt_name: str | None = None,
     similarity_threshold: float | None = None,
+    reranker_provider: str | None = None,
     reranker_model: str | None = None,
 ) -> dict:
     """Answer a question with inline [n] citations; sources[] ids match the citation numbers."""
@@ -50,7 +38,7 @@ def generate(
         citation_qa_template=load_prompt(prompt_name or settings.default_prompt_name, settings),
         # Threshold (fused-score floor) runs before the reranker; None when disabled
         node_postprocessors=[
-            p for p in (get_threshold_postprocessor(similarity_threshold), get_reranker(rerank_top_n, reranker_model)) if p is not None
+            p for p in (get_threshold_postprocessor(similarity_threshold), create_reranker(rerank_top_n, reranker_provider, reranker_model)) if p is not None
         ],
         citation_chunk_size=settings.citation_chunk_size,
     )
@@ -65,10 +53,10 @@ def generate(
         {
             "id": position,
             "text": node_with_score.node.get_content(),
-            # Rerank logit -> 0-1 relevance probability. float() also casts off numpy/torch
-            # scalar types (e.g. numpy.float32 from the cross-encoder) so the API layer can
-            # JSON-serialize it. A missing score stays None rather than becoming sigmoid(0)=0.5.
-            "score": _relevance(float(node_with_score.score)) if node_with_score.score is not None else None,
+            # Rerank score: a 0-1 relevance probability, normalized by the connector (see
+            # RerankConnector's contract). float() casts off numpy/torch scalar types so the API
+            # layer can JSON-serialize it. A missing score stays None.
+            "score": float(node_with_score.score) if node_with_score.score is not None else None,
             "metadata": node_with_score.node.metadata,
         }
         for position, node_with_score in enumerate(response.source_nodes, start=1)

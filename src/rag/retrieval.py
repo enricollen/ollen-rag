@@ -1,31 +1,18 @@
 """Hybrid retrieval through the configured vector store backend, with metadata filters,
 fused-score floor, and cross-encoder reranking."""
-from functools import lru_cache
-from pathlib import Path
-import torch
-import yaml
-from llama_index.core.postprocessor import SentenceTransformerRerank, SimilarityPostprocessor
+from llama_index.core.postprocessor import SimilarityPostprocessor
 from llama_index.core.retrievers import BaseRetriever
 from llama_index.core.schema import NodeWithScore, QueryBundle
 from src.exceptions import VectorStoreError
-from src.factories.embeddings import create_embedding_model
+from src.factories.embeddings import EmbeddingFactory, create_embedding_model
+from src.factories.reranker import create_reranker
 from src.factories.vector_store import (
     QueryMode, build_index_name, create_backend, embedding_meta, pick_supported_mode,
 )
-from src.logging_config import OllenLogger
+from src.logger import OllenLogger
 from src.settings import get_settings
 
 log = OllenLogger("retrieval")
-
-RERANKER_MODELS_CONFIG_PATH = Path("config/reranker_models.yaml")
-
-@lru_cache
-def load_reranker_model_choices() -> dict[str, str]:
-    """Curated label -> model id/path list for the Retrieval/Query UI; static app data, not settings."""
-    return yaml.safe_load(RERANKER_MODELS_CONFIG_PATH.read_text(encoding="utf-8"))
-
-# The cross-encoder is heavy to load; keep one shared instance per model id for the process lifetime
-_rerankers: dict[str, SentenceTransformerRerank] = {}
 
 def _resolve_embed_settings(settings, index: str, backend):
     """Return a Settings copy whose embedding provider/model match whatever built *index*.
@@ -35,12 +22,10 @@ def _resolve_embed_settings(settings, index: str, backend):
     """
     meta = embedding_meta(backend, index)
     if meta:
-        field = {"watsonx": "watsonx_embedding_model_id", "fastembed": "fastembed_model_name"}[meta["embedding_provider"]]
-        return settings.model_copy(update={"embedding_provider": meta["embedding_provider"], field: meta["embedding_model"]})
-    default_model = settings.watsonx_embedding_model_id if settings.embedding_provider == "watsonx" else settings.fastembed_model_name
+        return EmbeddingFactory.with_model(settings, meta["embedding_provider"], meta["embedding_model"])
     log.warning(
         "index '%s' has no recorded embedding metadata; using currently configured default (%s/%s)",
-        index, settings.embedding_provider, default_model,
+        index, settings.embedding_provider, EmbeddingFactory.resolve_model(settings),
     )
     return settings
 
@@ -83,33 +68,6 @@ def build_backend_retriever(
     settings = _resolve_embed_settings(settings, index_name, backend)
     return BackendRetriever(backend, index_name, settings, top_k, raw_filters, filter_condition)
 
-def get_reranker(top_n: int | None = None, model: str | None = None) -> SentenceTransformerRerank:
-    """Return the shared cross-encoder reranker for *model* (default: settings.reranker_model),
-    adjusting top_n for this call. First use of a not-yet-cached model pays its load cost once."""
-    settings = get_settings()
-    if model is not None and model not in load_reranker_model_choices().values():
-        raise ValueError(f"Unknown reranker model '{model}'. Available: {sorted(load_reranker_model_choices().values())}")
-    resolved = model or settings.reranker_model
-    if resolved not in _rerankers:
-        reranker = SentenceTransformerRerank(model=resolved, top_n=top_n or settings.rerank_top_n)
-        _force_identity_activation(reranker)
-        _rerankers[resolved] = reranker
-    _rerankers[resolved].top_n = top_n or settings.rerank_top_n
-    return _rerankers[resolved]
-
-def _force_identity_activation(reranker: SentenceTransformerRerank) -> None:
-    """Make every cross-encoder emit raw logits, whatever the model ships.
-
-    sentence-transformers chooses a CrossEncoder's activation per model: models/reranker ships a
-    config_sentence_transformers.json declaring Identity, while BAAI/bge-reranker-v2-m3 ships none
-    and so falls back to Sigmoid for its single label. node.score would then be a logit for one
-    model and a probability for another, and generation._relevance() would sigmoid an
-    already-sigmoided score. Pinning Identity keeps exactly one sigmoid, applied downstream.
-    """
-    cross_encoder = getattr(reranker, "_model", None)
-    if cross_encoder is not None and hasattr(cross_encoder, "activation_fn"):
-        cross_encoder.activation_fn = torch.nn.Identity()
-
 def get_threshold_postprocessor(threshold: float | None = None) -> SimilarityPostprocessor | None:
     """Score floor on fused hybrid scores (min_max-normalized, 0-1); None falls back to
     settings, 0 disables. Never applied to rerank scores, which live on a different
@@ -129,9 +87,14 @@ def retrieve(
     filter_condition: str = "and",
     similarity_threshold: float | None = None,
     use_rerank: bool = True,
+    reranker_provider: str | None = None,
     reranker_model: str | None = None,
 ) -> list[NodeWithScore]:
-    """Hybrid retrieve, fused-score floor, then rerank: returns the rerank_top_n best nodes for the query."""
+    """Hybrid retrieve, fused-score floor, then rerank: returns the rerank_top_n best nodes for the query.
+
+    Reranked node scores are 0-1 relevance probabilities (see RerankConnector's contract), not the
+    fused hybrid scores the threshold operates on.
+    """
     settings = get_settings()
     backend = create_backend(settings)
     target_index = build_index_name(strategy, index_name, settings)
@@ -154,7 +117,7 @@ def retrieve(
         if len(nodes) < before_count:
             log.debug("threshold cut %d node(s)", before_count - len(nodes))
     if nodes and use_rerank:
-        nodes = get_reranker(rerank_top_n, reranker_model).postprocess_nodes(nodes, query_str=query)
+        nodes = create_reranker(rerank_top_n, reranker_provider, reranker_model).postprocess_nodes(nodes, query_str=query)
     # use_rerank=False: eval harness measures the raw fused ranking without the cross-encoder
     log.info("retrieve: index=%s top_k=%d filters=%d -> %d node(s)", target_index, k, len(raw_filters or []), len(nodes))
     return nodes
@@ -168,6 +131,7 @@ def retrieve_debug(
     raw_filters: list[dict] | None = None,
     filter_condition: str = "and",
     similarity_threshold: float | None = None,
+    reranker_provider: str | None = None,
     reranker_model: str | None = None,
 ) -> dict[str, list[NodeWithScore]]:
     """Run BM25-only, dense-only, thresholded-hybrid and hybrid+rerank retrieval side by
@@ -205,5 +169,8 @@ def retrieve_debug(
     # wrappers: otherwise the "hybrid" leg we return below would carry the cross-encoder's
     # logits instead of the fused 0-1 scores it is documented to expose.
     rerank_input = [NodeWithScore(node=n.node, score=n.score) for n in hybrid_nodes]
-    reranked_nodes = get_reranker(rerank_top_n, reranker_model).postprocess_nodes(rerank_input, query_str=query) if hybrid_nodes else []
+    reranked_nodes = (
+        create_reranker(rerank_top_n, reranker_provider, reranker_model).postprocess_nodes(rerank_input, query_str=query)
+        if hybrid_nodes else []
+    )
     return {"bm25": bm25_nodes, "dense": dense_nodes, "hybrid": hybrid_nodes, "reranked": reranked_nodes}
