@@ -1,2 +1,2 @@
 """Embedding providers; importing this package registers them with the embedding factory."""
-from src.providers.embeddings import fastembed, watsonx  # noqa: F401
+from src.providers.embeddings import fastembed, litellm, watsonx  # noqa: F401

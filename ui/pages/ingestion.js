@@ -3,7 +3,7 @@
 // index was built with). An index = one chunking config + one embedding model; a persistent
 // info panel always shows the resolved target index's configuration. Bucket (metadata.bucket)
 // is a first-class field in both flows and scopes retrieval later.
-import { api, errorMessage, escapeHtml, toast, getJobHistory, addJobToHistory, updateJobInHistory, clearJobHistory, getKnownBuckets, rememberBucket } from "../lib.js";
+import { api, errorMessage, escapeHtml, toast, getJobHistory, addJobToHistory, updateJobInHistory, clearJobHistory, getKnownBuckets, rememberBucket, indexOverviewHtml, wireIndicesOverview } from "../lib.js";
 
 const STRATEGIES = [
   {
@@ -157,17 +157,21 @@ function chunkingSummary(chunking) {
 export async function render(view) {
   selectedStrategy = null;
   let defaultStrategy = "sentence";
-  let embeddingChoices = { watsonx: [], fastembed: [] };
+  let embeddingChoices = { watsonx: [], fastembed: [], litellm: [], "litellm-watsonx": [], "litellm-ollama": [] };
   let defaultEmbeddingProvider = "watsonx";
   let defaultModelByProvider = {};
   let indexPrefix = "";
+  let vectorStore = "";
   let chunkDefaults = {};
   try {
     const cfg = await api("/api/v1/config");
+    vectorStore = cfg.vector_store || "";
     defaultStrategy = cfg.default_chunking_strategy;
     embeddingChoices = cfg.embedding_model_choices || embeddingChoices;
     defaultEmbeddingProvider = cfg.embedding_provider || defaultEmbeddingProvider;
-    defaultModelByProvider = { watsonx: cfg.watsonx_embedding_model_id, fastembed: cfg.fastembed_model_name };
+    // provider -> its configured model, served by EmbeddingFactory.default_models(); adding a
+    // provider must not require editing this file.
+    defaultModelByProvider = cfg.embedding_default_models || defaultModelByProvider;
     indexPrefix = cfg.opensearch_index_prefix || "";
     chunkDefaults = {
       chunk_size: cfg.chunk_size, chunk_overlap: cfg.chunk_overlap,
@@ -182,6 +186,10 @@ export async function render(view) {
   let indices = [];
   try { indices = (await api("/api/v1/indices")).indices || []; } catch { /* none yet */ }
 
+  // Cross-store inventory for the "what already exists" panel (every vector store, not just active).
+  let overview = null;
+  try { overview = await api("/api/v1/indices/overview"); } catch { /* panel just won't render */ }
+
   const buckets = getKnownBuckets();
   const bucketChips = buckets.length ? `<div class="chip-row">${buckets.map(b => `<span class="pill" data-bucket-suggestion="${escapeHtml(b)}" style="cursor:pointer">${escapeHtml(b)}</span>`).join("")}</div>` : "";
 
@@ -191,6 +199,15 @@ export async function render(view) {
   view.innerHTML = `
     <h1 class="page-title">Ingestion KB</h1>
     <p class="page-sub">Two flows: build a brand-new index, or add documents to an existing one. An index is locked to a single chunking config and embedding model — to change either, create a new index.</p>
+    <div class="chip-row" style="margin:-1rem 0 1.5rem">
+      <span class="pill pill-ok">🗄️ Active vector store: ${escapeHtml(vectorStore || "unknown")}</span>
+    </div>
+
+    <div class="card kb-overview">
+      <h2>📚 Existing knowledge bases <span class="hint" style="font-weight:400">— across all vector stores</span></h2>
+      <p class="hint" style="margin:-.3rem 0 1rem">What is already indexed. Click a bucket to list its documents. When creating a new index, avoid a name that already exists in the active store.</p>
+      ${indexOverviewHtml(overview)}
+    </div>
 
     <div class="mode-toggle" id="mode-toggle">
       <button type="button" class="mode-btn active" data-mode="create">✨ Create new index</button>
@@ -229,13 +246,12 @@ export async function render(view) {
         <label class="field">
           <span class="label-text">Provider</span>
           <select id="embedding-provider">
-            <option value="watsonx">watsonx</option>
-            <option value="fastembed">fastembed</option>
+            ${Object.keys(embeddingChoices).map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join("")}
           </select>
         </label>
         <label class="field">
           <span class="label-text">Model</span>
-          <select id="embedding-model"></select>
+          <div id="embedding-model-host"></div>
         </label>
       </div>
 
@@ -329,6 +345,9 @@ export async function render(view) {
     });
   });
 
+  // --- Existing-KB panel: bucket chip -> toggle its document list (shared helper) ---
+  wireIndicesOverview(view, overview);
+
   // --- CREATE: strategy picker + chunk params ---
   const picker = document.getElementById("strategy-picker");
   const chunkParamsHost = document.getElementById("chunk-params");
@@ -353,20 +372,32 @@ export async function render(view) {
   refreshChunkInputs();
   suggestIndexName();
 
-  // --- CREATE: embedding selects ---
+  // --- CREATE: embedding provider + model control ---
+  // The model control is rebuilt per provider: a curated list renders a <select>, while a
+  // free-form provider (empty catalog list, e.g. the generic "litellm" that accepts any model
+  // string) renders a text input prefilled with the configured default. Both expose the same
+  // id/.value so the submit + info-panel code reads them uniformly.
   const providerSelect = document.getElementById("embedding-provider");
-  const modelSelect = document.getElementById("embedding-model");
+  const modelHost = document.getElementById("embedding-model-host");
+  const embModelValue = () => document.getElementById("embedding-model").value.trim();
   function refreshModelOptions() {
     const provider = providerSelect.value;
     const models = embeddingChoices[provider] || [];
-    modelSelect.innerHTML = models.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join("");
-    const defaultModel = defaultModelByProvider[provider];
-    if (defaultModel && models.includes(defaultModel)) modelSelect.value = defaultModel;
+    const defaultModel = defaultModelByProvider[provider] || "";
+    if (models.length) {
+      modelHost.innerHTML = `<select id="embedding-model">${models.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join("")}</select>`;
+      if (defaultModel && models.includes(defaultModel)) document.getElementById("embedding-model").value = defaultModel;
+    } else {
+      modelHost.innerHTML = `<input type="text" id="embedding-model" placeholder="any LiteLLM model, e.g. cohere/embed-multilingual-v3.0" value="${escapeHtml(defaultModel)}">
+        <span class="hint">Free-form — any LiteLLM embedding model string; set its API key in Settings §3.</span>`;
+    }
+    const ctrl = document.getElementById("embedding-model");
+    ctrl.oninput = updateInfoPanel;
+    ctrl.onchange = updateInfoPanel;
   }
   providerSelect.value = selectedEmbeddingProvider;
   refreshModelOptions();
   providerSelect.onchange = () => { selectedEmbeddingProvider = providerSelect.value; refreshModelOptions(); updateInfoPanel(); };
-  modelSelect.onchange = updateInfoPanel;
 
   // --- ADD: index picker (fetch + lock its recorded config) ---
   const addIndexSelect = document.getElementById("add-index-select");
@@ -416,9 +447,14 @@ export async function render(view) {
     return out;
   }
   function updateInfoPanel() {
+    // A create-mode name clash blocks submission; every other state leaves the button enabled.
+    const submitBtn = document.getElementById("submit-ingest");
+    submitBtn.disabled = false;
     if (mode === "create") {
       const name = createIndexName.value.trim() || (indexPrefix ? `${indexPrefix}_${selectedStrategy}` : "(unnamed)");
       const exists = existingIndexNames.has(name);
+      submitBtn.disabled = exists;
+      submitBtn.title = exists ? `"${name}" already exists — switch to “Add to existing KB” or rename` : "";
       const chunkBits = (CHUNK_FIELDS[selectedStrategy] || []).map(f => {
         const v = readCreateChunkParams()[f.key] ?? chunkDefaults[f.key];
         return `${f.key}=${v}`;
@@ -427,8 +463,9 @@ export async function render(view) {
         <div class="info-title">🆕 New index</div>
         <div class="info-grid">
           <span><strong>index</strong> <code class="inline">${escapeHtml(name)}</code></span>
+          <span><strong>vector store</strong> ${escapeHtml(vectorStore || "?")}</span>
           <span><strong>chunking</strong> ${escapeHtml([selectedStrategy, ...chunkBits].join(" · "))}</span>
-          <span><strong>embedding</strong> ${escapeHtml(providerSelect.value)}/${escapeHtml(modelSelect.value)}</span>
+          <span><strong>embedding</strong> ${escapeHtml(providerSelect.value)}/${escapeHtml(embModelValue())}</span>
         </div>
         ${exists ? `<div class="info-warn">⚠ An index named "${escapeHtml(name)}" already exists — use “Add to existing KB” to add documents, or choose a different name.</div>` : ""}`;
     } else {
@@ -439,6 +476,7 @@ export async function render(view) {
       infoPanel.innerHTML = `
         <div class="info-title">➕ Adding to <code class="inline">${escapeHtml(lockedMeta.index)}</code></div>
         <div class="info-grid">
+          <span><strong>vector store</strong> ${escapeHtml(vectorStore || "?")}</span>
           <span><strong>chunking</strong> ${escapeHtml(chunkingSummary(lockedMeta.chunking))}</span>
           <span><strong>embedding</strong> ${escapeHtml(lockedMeta.embedding_provider || "?")}/${escapeHtml(lockedMeta.embedding_model || "?")}</span>
           <span><strong>dim</strong> ${lockedMeta.dim ?? "?"}</span>
@@ -521,7 +559,8 @@ export async function render(view) {
       bucket = document.getElementById("create-bucket").value.trim();
       strategy = selectedStrategy;
       embProvider = providerSelect.value;
-      embModel = modelSelect.value;
+      embModel = embModelValue();
+      if (!embModel) { toast("Enter an embedding model", "error"); return; }
       chunkParams = readCreateChunkParams();
       enrich = document.getElementById("enrich-keywords").checked;
       metaHost = metaRows;

@@ -1,6 +1,16 @@
-# Cross-encoders selectable per request. All are single-label BCE models, so their raw logits
-# become relevance probabilities via sigmoid (see generation._relevance).
-default: cross-encoder/mmarco-mMiniLMv2-L12-H384-v1
-mmarco-mMiniLM: cross-encoder/mmarco-mMiniLMv2-L12-H384-v1
-ms-marco-MiniLM-local: models/reranker
-ms-marco-MiniLM: cross-encoder/ms-marco-MiniLM-L-6-v2
+# Curated rerank models per provider, for the Retrieval/Query UI and per-request validation.
+# A provider mapped to an empty list accepts any model string (see src/factories/model_catalog.py).
+# The old "default:" pseudo-label is gone: OLLEN_RAG_RERANKER_MODEL is the real default.
+#
+# Every model here emits a 0-1 relevance probability: the cross-encoders are single-label BCE
+# models and their connector applies the sigmoid, while LiteLLM rerank endpoints return calibrated
+# scores already (see src/factories/reranker.py).
+sentence-transformers:
+  - cross-encoder/mmarco-mMiniLMv2-L12-H384-v1
+  - cross-encoder/ms-marco-MiniLM-L-6-v2
+  - models/reranker
+# Bare model id; the "watsonx/" prefix is added at call time.
+litellm-watsonx:
+  - cross-encoder/ms-marco-minilm-l-12-v2
+# Free-form: any LiteLLM rerank model string, e.g. cohere/rerank-v3.5, jina_ai/jina-reranker-v2-base-multilingual
+litellm: []

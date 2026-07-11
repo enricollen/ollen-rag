@@ -1,7 +1,7 @@
 """Tests for the OllenLogger facade (handler idempotence, levels, delegation)."""
 import logging
 import pytest
-from src.logging_config import OllenLogger
+from src.logger import OllenLogger
 from src.settings import Settings
 
 

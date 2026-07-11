@@ -2,7 +2,7 @@
 import re
 from typing import Any
 from llama_index.core.schema import BaseNode, TransformComponent
-from src.logging_config import OllenLogger
+from src.logger import OllenLogger
 
 log = OllenLogger("enrichment")
 

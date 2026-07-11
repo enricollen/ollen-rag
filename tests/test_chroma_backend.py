@@ -96,12 +96,12 @@ def test_set_meta_preserves_dim(tmp_path):
 
 # --- admin / browse ---
 
-def test_list_indices_prefix_and_keys(tmp_path):
+def test_list_indices_includes_all_names(tmp_path):
     b = _backend(tmp_path)
     b.add_nodes(IDX, [_node("x", "a.pdf", "b1")])
-    b._client.get_or_create_collection("other_index")  # non-prefixed, must be excluded
-    listed = b.list_indices()
-    assert listed == [{"index": IDX, "docs.count": "1"}]
+    b._client.get_or_create_collection("other_index")  # non-prefixed, now still listed (no prefix rule)
+    listed = {d["index"]: d["docs.count"] for d in b.list_indices()}
+    assert listed == {IDX: "1", "other_index": "0"}
 
 def test_get_documents_hides_internal_keys(tmp_path):
     b = _backend(tmp_path)
@@ -123,10 +123,6 @@ def test_get_documents_scoped_to_bucket(tmp_path):
     page = b.get_index_documents(IDX, 0, 20, bucket="b2")
     assert page["total"] == 2
     assert {d["metadata"]["file_name"] for d in page["documents"]} == {"b.pdf", "c.pdf"}
-
-def test_get_documents_requires_owned(tmp_path):
-    with pytest.raises(ValueError):
-        _backend(tmp_path).get_index_documents("other_index", 0, 20)
 
 # --- bucket aggregation ---
 
@@ -172,6 +168,20 @@ def test_delete_index_removes_collection(tmp_path):
 def test_delete_missing_is_idempotent(tmp_path):
     _backend(tmp_path).delete_index("ollen_rag_nope")  # must not raise
 
-def test_delete_requires_owned(tmp_path):
-    with pytest.raises(ValueError):
-        _backend(tmp_path).delete_index("other_index")
+# --- delete bucket ---
+
+def test_delete_bucket_removes_only_that_bucket(tmp_path):
+    b = _backend(tmp_path)
+    b.add_nodes(IDX, [_node("x", "a.pdf", "b1"), _node("y", "b.pdf", "b2")])
+    n = b.delete_bucket(IDX, "b1")
+    assert n == 1
+    assert b.list_buckets(IDX) == ["b2"]
+
+def test_delete_bucket_missing_bucket_returns_zero(tmp_path):
+    b = _backend(tmp_path)
+    b.add_nodes(IDX, [_node("x", "a.pdf", "b1")])
+    assert b.delete_bucket(IDX, "nope") == 0
+    assert b.list_buckets(IDX) == ["b1"]
+
+def test_delete_bucket_missing_index_returns_zero(tmp_path):
+    assert _backend(tmp_path).delete_bucket("ollen_rag_nope", "b1") == 0

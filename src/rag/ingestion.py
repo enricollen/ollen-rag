@@ -10,10 +10,11 @@ from llama_index.core import Document
 from llama_index.core.ingestion import IngestionPipeline
 from src.exceptions import ParsingError
 from src.factories.chunker import CHUNKING_STRATEGIES, create_node_parser
-from src.factories.embeddings import create_embedding_model, get_embedding_dim, load_embedding_model_choices
+from src.factories.embeddings import EmbeddingFactory, create_embedding_model, get_embedding_dim, load_embedding_model_choices
+from src.factories.model_catalog import validate_model
 from src.factories.llm import create_llm
 from src.factories.vector_store import build_index_name, create_backend
-from src.logging_config import OllenLogger
+from src.logger import OllenLogger
 from src.prompts import load_prompt
 from src.rag.enrichment import KeywordEnricher
 from src.settings import get_settings
@@ -93,15 +94,8 @@ def ingest_document(
     # pipeline (create_embedding_model, node parser, vector store) stays settings-blind
     if embedding_provider or embedding_model:
         provider = embedding_provider or settings.embedding_provider
-        model_field = {"watsonx": "watsonx_embedding_model_id", "fastembed": "fastembed_model_name"}.get(provider)
-        if model_field is None:
-            raise ValueError(f"Unknown embedding provider '{provider}'. Available: {sorted(load_embedding_model_choices())}")
-        if embedding_model and embedding_model not in load_embedding_model_choices().get(provider, []):
-            raise ValueError(f"Unknown embedding model '{embedding_model}' for provider '{provider}'. Available: {load_embedding_model_choices().get(provider, [])}")
-        overrides = {"embedding_provider": provider}
-        if embedding_model:
-            overrides[model_field] = embedding_model
-        settings = settings.model_copy(update=overrides)
+        validate_model(load_embedding_model_choices(), provider, embedding_model)
+        settings = EmbeddingFactory.with_model(settings, provider, embedding_model)
     strategy = strategy or settings.default_chunking_strategy
     if strategy not in CHUNKING_STRATEGIES:
         raise ValueError(f"Unknown chunking strategy '{strategy}'. Valid: {CHUNKING_STRATEGIES}")
@@ -165,7 +159,7 @@ def ingest_document(
     llm = create_llm(settings) if strategy == "llm" or enrich else None
     node_parser = create_node_parser(strategy, embed_model=embed_model, llm=llm, settings=settings, progress_cb=_chunk_progress)
     embed_dim = get_embedding_dim(embed_model)
-    resolved_model = settings.watsonx_embedding_model_id if settings.embedding_provider == "watsonx" else settings.fastembed_model_name
+    resolved_model = EmbeddingFactory.resolve_model(settings)
     chunking = effective_chunking(strategy, settings)
     # One index = one build config (embedding model + chunking): mixing pollutes retrieval/eval.
     # Adding documents to an existing index is fine only if every recorded knob matches; otherwise

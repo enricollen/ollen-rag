@@ -1,0 +1,1 @@
+# Runtime configuration helpers: effective-config summaries (summary.py) and .env persistence (writer.py).

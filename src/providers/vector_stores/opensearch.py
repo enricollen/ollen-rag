@@ -9,7 +9,7 @@ from llama_index.core.vector_stores.types import VectorStoreQuery, VectorStoreQu
 from llama_index.vector_stores.opensearch import OpensearchVectorClient, OpensearchVectorStore
 from src.exceptions import VectorStoreError
 from src.factories.vector_store import QueryMode, VectorStoreBackend, VectorStoreFactory
-from src.logging_config import OllenLogger
+from src.logger import OllenLogger
 from src.settings import Settings, get_settings
 
 log = OllenLogger("opensearch_backend")
@@ -131,11 +131,6 @@ class OpenSearchBackend(VectorStoreBackend):
         except httpx.HTTPError as exc:
             raise VectorStoreError(f"Failed to create hybrid search pipeline: {exc}") from exc
 
-    def _require_owned(self, index: str) -> None:
-        """Guard destructive/read admin calls to indices this service actually created."""
-        if not index.startswith(self._settings.opensearch_index_prefix):
-            raise ValueError(f"'{index}' is not a {self._settings.opensearch_index_prefix}* index")
-
     # --- lifecycle ---
     def warmup(self) -> None:
         """Startup priming: ensure the shared hybrid pipeline exists."""
@@ -215,11 +210,13 @@ class OpenSearchBackend(VectorStoreBackend):
 
     # --- introspection / admin ---
     def list_indices(self) -> list[dict]:
-        """Return service-owned indices ({prefix}*) with document counts via _cat API."""
+        """Return every index with document counts via the _cat API. No name filtering — the
+        console shows all indices regardless of naming; only OpenSearch system indices (names
+        starting with '.', e.g. '.opensearch-*'/'.kibana') are hidden."""
         try:
-            response = self._client.get(f"/_cat/indices/{self._settings.opensearch_index_prefix}*", params={"format": "json"})
+            response = self._client.get("/_cat/indices", params={"format": "json"})
             response.raise_for_status()
-            return response.json()
+            return [ix for ix in response.json() if not str(ix.get("index", "")).startswith(".")]
         except httpx.HTTPError as exc:
             raise VectorStoreError(f"Failed to list indices: {exc}") from exc
 
@@ -230,7 +227,6 @@ class OpenSearchBackend(VectorStoreBackend):
         Excludes the dense embedding vector and llama-index's internal `_node_content`
         bookkeeping blob so the UI stays readable.
         """
-        self._require_owned(index)
         body_query: dict = {
             "_source": {"excludes": ["embedding", "metadata._node_content"]},
             "sort": [{"metadata.file_name.keyword": {"order": "asc", "unmapped_type": "keyword"}}, "_id"],
@@ -257,7 +253,6 @@ class OpenSearchBackend(VectorStoreBackend):
 
     def list_buckets(self, index: str) -> list[str]:
         """Return distinct 'bucket' metadata values present in an index, for preloading UI dropdowns."""
-        self._require_owned(index)
         try:
             response = self._client.post(
                 f"/{index}/_search",
@@ -276,7 +271,6 @@ class OpenSearchBackend(VectorStoreBackend):
         Powers the KB "add to existing" UI so the user sees which docs already live in an
         index+bucket and avoids re-uploading them. Nested terms aggregation: bucket -> file_name.
         """
-        self._require_owned(index)
         try:
             response = self._client.post(
                 f"/{index}/_search",
@@ -325,7 +319,6 @@ class OpenSearchBackend(VectorStoreBackend):
 
     def delete_index(self, index: str) -> None:
         """Permanently delete an index and all its documents. Irreversible."""
-        self._require_owned(index)
         try:
             response = self._client.delete(f"/{index}")
             if response.status_code not in (200, 404):
@@ -333,3 +326,22 @@ class OpenSearchBackend(VectorStoreBackend):
             log.info("index deleted: %s", index)
         except httpx.HTTPError as exc:
             raise VectorStoreError(f"Failed to delete index '{index}': {exc}") from exc
+
+    def delete_bucket(self, index: str, bucket: str) -> int:
+        """Delete every document in `index` whose metadata.bucket == `bucket`.
+        Returns the number of documents deleted. Idempotent: a missing index or
+        bucket deletes nothing and returns 0."""
+        try:
+            response = self._client.post(
+                f"/{index}/_delete_by_query",
+                params={"refresh": "true"},
+                json={"query": {"term": {"metadata.bucket.keyword": bucket}}},
+            )
+            if response.status_code == 404:
+                return 0
+            response.raise_for_status()
+            deleted = int(response.json().get("deleted", 0))
+            log.info("bucket deleted: %s/%s (%d docs)", index, bucket, deleted)
+            return deleted
+        except httpx.HTTPError as exc:
+            raise VectorStoreError(f"Failed to delete bucket '{bucket}' from '{index}': {exc}") from exc
