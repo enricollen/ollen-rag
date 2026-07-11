@@ -1,6 +1,8 @@
-// Indices page: browse raw stored documents per OpenSearch index and, when
-// needed, permanently delete an index (irreversible — double confirmation).
-import { api, errorMessage, escapeHtml, toast, chunkTextHtml, wireChunks, fetchIndexInfo } from "../lib.js";
+// Indices page: the cross-store "existing indexes" panel doubles as the picker — click an index
+// (in the active store) to browse its buckets and raw stored chunks below, or 🗑 to permanently
+// delete it (irreversible — typed confirmation). Inactive-store indexes are shown read-only, since
+// browse/delete endpoints target the active backend only.
+import { api, errorMessage, escapeHtml, toast, chunkTextHtml, wireChunks, fetchIndexInfo, indexOverviewHtml, wireIndicesOverview } from "../lib.js";
 
 const PAGE_SIZE = 20;
 let currentPage = 0;
@@ -19,20 +21,23 @@ function docCardHtml(doc) {
     </div>`;
 }
 
-// One clickable bucket card: 📦 icon + bucket name + document count.
+// One bucket entry: the clickable 📦 card (select-to-filter) plus a 🗑 delete button.
+// Wrapped in a container because a <button> cannot nest inside the card <button>.
 function bucketCardHtml(name, count) {
   return `
-    <button type="button" class="bucket-card" data-bucket="${escapeHtml(name)}">
-      <span class="bucket-card-icon">📦</span>
-      <span class="bucket-card-name">${escapeHtml(name)}</span>
-      <span class="bucket-card-count">${count} doc${count === 1 ? "" : "s"}</span>
-    </button>`;
+    <div class="bucket-card-wrap">
+      <button type="button" class="bucket-card" data-bucket="${escapeHtml(name)}">
+        <span class="bucket-card-icon">📦</span>
+        <span class="bucket-card-name">${escapeHtml(name)}</span>
+        <span class="bucket-card-count">${count} doc${count === 1 ? "" : "s"}</span>
+      </button>
+      <button type="button" class="bucket-del" data-bucket="${escapeHtml(name)}" data-count="${count}" title="Delete this bucket">🗑 Delete</button>
+    </div>`;
 }
 
 // Fetch the selected index's info and render its buckets as cards. Clicking a card lists that
 // bucket's 📄 file names AND refreshes the "stored chunks" pager below, scoped to that bucket;
 // clicking the selected card again clears the scope (back to all chunks in the index).
-// Reuses /indices/{name}/info's bucket_files map.
 async function loadBuckets(view, indexName) {
   const host = document.getElementById("buckets-host");
   const docsHost = document.getElementById("bucket-docs-host");
@@ -64,17 +69,30 @@ async function loadBuckets(view, indexName) {
         loadDocuments(view, currentIndex, currentPage);
       };
     });
+    // Wire the 🗑 delete button on each bucket card: confirm, DELETE, then refresh
+    // the buckets, stored chunks, and the overview doc counts.
+    host.querySelectorAll(".bucket-del").forEach(btn => {
+      btn.onclick = async (e) => {
+        e.stopPropagation();  // don't trigger the card's select-to-filter click
+        const bucket = btn.dataset.bucket;
+        const count = btn.dataset.count;
+        if (!confirm(`Delete bucket "${bucket}" and its ${count} document(s) from "${indexName}"? This cannot be undone.`)) return;
+        try {
+          const res = await api(`/api/v1/indices/${encodeURIComponent(indexName)}/buckets/${encodeURIComponent(bucket)}`, { method: "DELETE" });
+          toast(`Deleted bucket "${bucket}" (${res.deleted} document(s))`, "success");
+          if (currentBucket === bucket) currentBucket = null;  // clear a stale chunk filter
+          currentPage = 0;
+          await loadBuckets(view, indexName);                    // re-render bucket cards
+          await loadDocuments(view, currentIndex, currentPage);  // refresh stored chunks
+          refreshOverview(view);                                 // refresh overview doc counts
+        } catch (err) {
+          toast(errorMessage(err), "error");
+        }
+      };
+    });
   } catch (e) {
     host.innerHTML = `<div class="card">${escapeHtml(errorMessage(e))}</div>`;
   }
-}
-
-async function loadIndicesList(select) {
-  const res = await api("/api/v1/indices");
-  select.innerHTML = res.indices.map(ix =>
-    `<option value="${ix.index}">${ix.index} (${ix["docs.count"]} docs, ${ix["store.size"]})</option>`
-  ).join("") || '<option value="">no indices yet</option>';
-  return res.indices;
 }
 
 async function loadDocuments(view, indexName, page) {
@@ -101,24 +119,76 @@ async function loadDocuments(view, indexName, page) {
   }
 }
 
+// Re-fetch the cross-store overview and (re)render the picker panel + its selection/delete wiring.
+async function refreshOverview(view) {
+  const host = document.getElementById("overview-host");
+  host.innerHTML = '<div class="empty-state"><span class="spinner"></span></div>';
+  let overview = null;
+  try { overview = await api("/api/v1/indices/overview"); } catch (e) { host.innerHTML = `<div class="card">${escapeHtml(errorMessage(e))}</div>`; return; }
+  host.innerHTML = indexOverviewHtml(overview, { deletable: true, selectable: true });
+  // Keep the previously-selected card highlighted across refreshes when it still exists.
+  const stillExists = overview.stores.some(s => s.active && s.indices.some(i => i.index === currentIndex));
+  if (!stillExists) currentIndex = null;
+  markSelectedCard(host);
+  wireIndicesOverview(host, overview, {
+    onSelect: (store, index) => selectIndex(view, host, index),
+    onDelete: (store, index) => deleteIndex(view, index),
+  });
+  if (currentIndex) { loadBuckets(view, currentIndex); loadDocuments(view, currentIndex, currentPage); }
+  else showBrowsePlaceholder();
+}
+
+// Highlight the card matching currentIndex (active store only).
+function markSelectedCard(host) {
+  host.querySelectorAll(".kb-index").forEach(c => c.classList.toggle("selected", c.dataset.index === currentIndex));
+}
+
+function selectIndex(view, host, index) {
+  currentIndex = index;
+  currentPage = 0;
+  currentBucket = null;
+  markSelectedCard(host);
+  loadBuckets(view, currentIndex);
+  loadDocuments(view, currentIndex, currentPage);
+}
+
+function showBrowsePlaceholder() {
+  document.getElementById("buckets-host").innerHTML = '<div class="empty-state">Select an index above to browse its buckets.</div>';
+  document.getElementById("bucket-docs-host").innerHTML = "";
+  document.getElementById("docs-host").innerHTML = '<div class="empty-state">Select an index above to browse its stored chunks.</div>';
+  document.getElementById("pager-info").textContent = "";
+}
+
+async function deleteIndex(view, index) {
+  const typed = prompt(
+    `This permanently deletes ALL documents in "${index}". This cannot be undone.\n\nType the index name to confirm:`
+  );
+  if (typed !== index) {
+    if (typed !== null) toast("Index name did not match — nothing deleted", "error");
+    return;
+  }
+  try {
+    await api(`/api/v1/indices/${encodeURIComponent(index)}`, { method: "DELETE" });
+    toast(`Deleted index "${index}"`, "success");
+    if (currentIndex === index) currentIndex = null;
+    await refreshOverview(view);
+  } catch (e) {
+    toast(errorMessage(e), "error");
+  }
+}
+
 export async function render(view) {
+  currentIndex = null; currentPage = 0; currentBucket = null;
   view.innerHTML = `
     <h1 class="page-title">Indices</h1>
-    <p class="page-sub">Browse the raw documents actually stored in each OpenSearch index, or permanently delete one to start clean.</p>
+    <p class="page-sub">Every index across all vector stores. Click one (in the active store) to browse its documents, or 🗑 to permanently delete it.</p>
 
-    <div class="card">
-      <div class="row" style="align-items:flex-end">
-        <label class="field" style="margin-bottom:0">
-          <span class="label-text">Index</span>
-          <select id="index-select"></select>
-        </label>
-        <div style="flex:0 0 auto">
-          <button class="secondary" id="refresh-indices">Refresh list</button>
-        </div>
-        <div style="flex:0 0 auto">
-          <button class="danger-ghost" id="delete-index-btn">Delete index…</button>
-        </div>
+    <div class="card kb-overview">
+      <div class="btn-row" style="justify-content:space-between;align-items:center;margin-bottom:.6rem">
+        <h2 style="margin:0">📚 Existing indexes <span class="hint" style="font-weight:400">— across all vector stores</span></h2>
+        <button class="secondary" id="refresh-indices">Refresh</button>
       </div>
+      <div id="overview-host"></div>
     </div>
 
     <div class="card">
@@ -141,56 +211,17 @@ export async function render(view) {
     </div>
   `;
 
-  const select = document.getElementById("index-select");
-  const refreshBtn = document.getElementById("refresh-indices");
-  const deleteBtn = document.getElementById("delete-index-btn");
-
-  async function refreshAll(preserveSelection) {
-    const prev = preserveSelection ? select.value : null;
-    const list = await loadIndicesList(select);
-    if (prev && list.some(ix => ix.index === prev)) select.value = prev;
-    currentIndex = select.value || null;
-    currentPage = 0;
-    currentBucket = null;  // switching/refreshing the index resets the bucket scope
-    if (currentIndex) { await loadBuckets(view, currentIndex); await loadDocuments(view, currentIndex, currentPage); }
-  }
+  document.getElementById("refresh-indices").onclick = () => refreshOverview(view);
+  document.getElementById("prev-page").onclick = () => {
+    if (currentIndex && currentPage > 0) { currentPage--; loadDocuments(view, currentIndex, currentPage); }
+  };
+  document.getElementById("next-page").onclick = () => {
+    if (currentIndex) { currentPage++; loadDocuments(view, currentIndex, currentPage); }
+  };
 
   try {
-    await refreshAll(false);
+    await refreshOverview(view);
   } catch (e) {
     toast(errorMessage(e), "error");
   }
-
-  select.onchange = () => {
-    currentIndex = select.value;
-    currentPage = 0;
-    currentBucket = null;  // new index → clear any bucket scope
-    if (currentIndex) { loadBuckets(view, currentIndex); loadDocuments(view, currentIndex, currentPage); }
-  };
-  refreshBtn.onclick = () => refreshAll(true);
-
-  document.getElementById("prev-page").onclick = () => {
-    if (currentPage > 0) { currentPage--; loadDocuments(view, currentIndex, currentPage); }
-  };
-  document.getElementById("next-page").onclick = () => {
-    currentPage++; loadDocuments(view, currentIndex, currentPage);
-  };
-
-  deleteBtn.onclick = async () => {
-    if (!currentIndex) { toast("No index selected", "error"); return; }
-    const typed = prompt(
-      `This permanently deletes ALL documents in "${currentIndex}". This cannot be undone.\n\nType the index name to confirm:`
-    );
-    if (typed !== currentIndex) {
-      if (typed !== null) toast("Index name did not match — nothing deleted", "error");
-      return;
-    }
-    try {
-      await api(`/api/v1/indices/${encodeURIComponent(currentIndex)}`, { method: "DELETE" });
-      toast(`Deleted index "${currentIndex}"`, "success");
-      await refreshAll(false);
-    } catch (e) {
-      toast(errorMessage(e), "error");
-    }
-  };
 }

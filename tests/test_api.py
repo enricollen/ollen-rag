@@ -154,13 +154,48 @@ def test_query_forwards_reranker_model(client, monkeypatch):
     assert response.status_code == 200
     assert captured["reranker_model"] == "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
+def test_delete_bucket_routes_to_backend(client, monkeypatch):
+    captured = {}
+    class _Fake:
+        def delete_bucket(self, index, bucket):
+            captured["args"] = (index, bucket)
+            return 4
+    monkeypatch.setattr(routes, "create_backend", lambda: _Fake())
+    r = client.delete("/api/v1/indices/ollen_rag_sentence/buckets/soc")
+    assert r.status_code == 200
+    assert r.json() == {"deleted": 4, "bucket": "soc", "index": "ollen_rag_sentence"}
+    assert captured["args"] == ("ollen_rag_sentence", "soc")
+
 def test_config_exposes_reranker_model_choices(client):
-    """The 'default' choice must name the reranker the service actually uses, rather than a
-    hard-coded model id that silently drifts whenever the default is swapped."""
+    """The advertised default must name the reranker the service actually uses, rather than a
+    hard-coded model id that silently drifts whenever the default is swapped.
+
+    The catalog is now provider -> [model id]; the per-provider default comes from
+    RerankerFactory.default_models(), which reads each provider's own Settings field."""
     from src.settings import get_settings
     body = client.get("/api/v1/config").json()
-    assert "default" in body["reranker_model_choices"]
-    assert body["reranker_model_choices"]["default"] == get_settings().reranker_model
+    settings = get_settings()
+    assert isinstance(body["reranker_model_choices"]["sentence-transformers"], list)
+    assert body["reranker_provider"] == settings.reranker_provider
+    assert body["reranker_default_models"]["sentence-transformers"] == settings.reranker_model
+
+def test_config_exposes_embedding_provider_defaults(client):
+    """The UI reads provider -> model from here instead of hardcoding the map in JS."""
+    body = client.get("/api/v1/config").json()
+    assert body["embedding_default_models"]["fastembed"] == body["fastembed_model_name"]
+    assert body["embedding_default_models"]["watsonx"] == body["watsonx_embedding_model_id"]
+    assert body["embedding_default_models"]["litellm-ollama"] == "nomic-embed-text"
+
+def test_retrieve_forwards_reranker_provider(client, monkeypatch):
+    """Per-request provider override reaches the rag layer alongside the model."""
+    captured = {}
+    def fake_retrieve_debug(query, **kwargs):
+        captured["reranker_provider"] = kwargs.get("reranker_provider")
+        return {"bm25": [], "dense": [], "hybrid": [], "reranked": []}
+    monkeypatch.setattr(routes, "retrieve_debug", fake_retrieve_debug)
+    response = client.post("/api/v1/retrieve", json={"query": "x", "reranker_provider": "litellm-watsonx"})
+    assert response.status_code == 200
+    assert captured["reranker_provider"] == "litellm-watsonx"
 
 def test_domain_error_maps_to_http(client, monkeypatch):
     def boom(query, **kwargs):

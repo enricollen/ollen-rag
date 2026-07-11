@@ -16,7 +16,7 @@ from llama_index.core.vector_stores.types import VectorStoreQuery, VectorStoreQu
 from llama_index.vector_stores.chroma import ChromaVectorStore
 from src.exceptions import VectorStoreError
 from src.factories.vector_store import QueryMode, VectorStoreBackend, VectorStoreFactory
-from src.logging_config import OllenLogger
+from src.logger import OllenLogger
 from src.settings import Settings, get_settings
 
 log = OllenLogger("chroma_backend")
@@ -60,11 +60,6 @@ class ChromaBackend(VectorStoreBackend):
             return chromadb.PersistentClient(path=self._settings.chroma_path)
         except Exception as exc:  # chromadb raises assorted errors on a bad path/store
             raise VectorStoreError(f"Failed to open Chroma store at '{self._settings.chroma_path}': {exc}") from exc
-
-    def _require_owned(self, index: str) -> None:
-        """Guard destructive/read admin calls to collections this service actually created."""
-        if not index.startswith(self._settings.opensearch_index_prefix):
-            raise ValueError(f"'{index}' is not a {self._settings.opensearch_index_prefix}* index")
 
     def _open(self, index: str):
         """Return the existing collection or raise VectorStoreError if it doesn't exist."""
@@ -167,15 +162,13 @@ class ChromaBackend(VectorStoreBackend):
 
     # --- introspection / admin ---
     def list_indices(self) -> list[dict]:
-        """Return service-owned collections ({prefix}*) with document counts, keyed to match the UI
-        (`index`, `docs.count`) so both backends render through the same code path."""
-        prefix = self._settings.opensearch_index_prefix
+        """Return every collection in the store with document counts, keyed to match the UI
+        (`index`, `docs.count`) so both backends render through the same code path. No name
+        filtering — the console shows all indices regardless of naming."""
         try:
             out = []
             for col in self._client.list_collections():
                 name = col.name if hasattr(col, "name") else str(col)
-                if not name.startswith(prefix):
-                    continue
                 count = self._client.get_collection(name).count()
                 out.append({"index": name, "docs.count": str(count)})
             return out
@@ -186,7 +179,6 @@ class ChromaBackend(VectorStoreBackend):
         """Paginate stored documents (content + metadata) for browsing, optionally scoped to one bucket;
         embeddings and llama-index bookkeeping keys are excluded so the UI stays readable. Page order is
         Chroma's own (no server sort)."""
-        self._require_owned(index)
         col = self._open(index)
         where = {"bucket": bucket} if bucket else None
         # Chroma's count() ignores `where`, so a filtered total = number of ids matching the bucket.
@@ -212,13 +204,11 @@ class ChromaBackend(VectorStoreBackend):
 
     def list_buckets(self, index: str) -> list[str]:
         """Return distinct 'bucket' metadata values present in a collection."""
-        self._require_owned(index)
         buckets = {md.get("bucket") for md in self._all_metadatas(index) if md.get("bucket")}
         return sorted(buckets)
 
     def list_bucket_files(self, index: str) -> dict[str, list[str]]:
         """Map each bucket to the distinct document file_names it contains (bucket -> [file_name])."""
-        self._require_owned(index)
         out: dict[str, set] = {}
         for md in self._all_metadatas(index):
             bucket, file_name = md.get("bucket"), md.get("file_name")
@@ -246,7 +236,6 @@ class ChromaBackend(VectorStoreBackend):
 
     def delete_index(self, index: str) -> None:
         """Permanently delete a collection and all its documents. Irreversible."""
-        self._require_owned(index)
         try:
             self._client.delete_collection(index)
             log.info("collection deleted: %s", index)
@@ -255,3 +244,20 @@ class ChromaBackend(VectorStoreBackend):
             if "does not exist" in str(exc).lower() or "not found" in str(exc).lower():
                 return
             raise VectorStoreError(f"Failed to delete Chroma collection '{index}': {exc}") from exc
+
+    def delete_bucket(self, index: str, bucket: str) -> int:
+        """Delete every document in `index` whose metadata.bucket == `bucket`.
+        Returns the number of documents deleted. Idempotent: a missing index or
+        bucket deletes nothing and returns 0. Chroma has no server-side count,
+        so we fetch the matching ids first and delete by the same `where`."""
+        col = self._maybe(index)
+        if col is None:
+            return 0
+        try:
+            ids = col.get(where={"bucket": bucket}).get("ids") or []
+            if ids:
+                col.delete(where={"bucket": bucket})
+            log.info("bucket deleted: %s/%s (%d docs)", index, bucket, len(ids))
+            return len(ids)
+        except Exception as exc:
+            raise VectorStoreError(f"Failed to delete bucket '{bucket}' from '{index}': {exc}") from exc
