@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from llama_index.core.schema import BaseNode, NodeWithScore
 from src.exceptions import VectorStoreError
-from src.logging_config import OllenLogger
+from src.logger import OllenLogger
 from src.settings import Settings, get_settings
 
 log = OllenLogger("vector_store")
@@ -81,6 +81,10 @@ class VectorStoreBackend(ABC):
     @abstractmethod
     def delete_index(self, index: str) -> None:
         """Permanently delete an index and all its documents."""
+
+    @abstractmethod
+    def delete_bucket(self, index: str, bucket: str) -> int:
+        """Delete every document in `index` whose metadata.bucket == `bucket`; return the count deleted. Idempotent: missing index/bucket returns 0."""
 
 class VectorStoreFactory:
     """Decorator registry mapping a backend name to its VectorStoreBackend class."""

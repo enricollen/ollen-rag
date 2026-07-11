@@ -70,6 +70,9 @@ class FakeBackend(VectorStoreBackend):
     def delete_index(self, index):
         pass
 
+    def delete_bucket(self, index, bucket):
+        return 0
+
 def test_create_backend_returns_registered_backend():
     VectorStoreFactory.register("fake")(FakeBackend)
     backend = create_backend(Settings(_env_file=None, vector_store="fake"))

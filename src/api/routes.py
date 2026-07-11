@@ -5,15 +5,17 @@ import tempfile
 from pathlib import Path
 from typing import Any
 from fastapi import APIRouter, BackgroundTasks, Form, HTTPException, Query, UploadFile
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
+from src.config.writer import merge_into_env
 from src.factories.chunker import CHUNKING_STRATEGIES
-from src.factories.embeddings import load_embedding_model_choices
-from src.factories.vector_store import create_backend, embedding_meta
+from src.factories.embeddings import EmbeddingFactory, load_embedding_model_choices
+from src.factories.vector_store import VectorStoreFactory, create_backend, embedding_meta
 from src.rag.evaluation import evaluate, load_dataset, parse_dataset
 from src.rag.generation import generate
 from src.rag.ingestion import JOBS, create_job, run_ingestion_job
-from src.rag.retrieval import load_reranker_model_choices, retrieve, retrieve_debug
-from src.settings import get_settings
+from src.factories.reranker import RerankerFactory, load_reranker_model_choices
+from src.rag.retrieval import retrieve, retrieve_debug
+from src.settings import Settings, get_settings
 
 router = APIRouter()
 
@@ -33,6 +35,7 @@ class RetrieveRequest(BaseModel):
     similarity_threshold: float | None = Field(default=None, ge=0, le=1)
     filters: list[FilterSpec] | None = None
     filter_condition: str = "and"
+    reranker_provider: str | None = None
     reranker_model: str | None = None
 
 class QueryRequest(RetrieveRequest):
@@ -144,6 +147,7 @@ def retrieve_endpoint(request: RetrieveRequest) -> dict:
         similarity_threshold=request.similarity_threshold,
         raw_filters=_raw_filters(request),
         filter_condition=request.filter_condition,
+        reranker_provider=request.reranker_provider,
         reranker_model=request.reranker_model,
     )
     # Join rerank results back to their fused scores by node id (rerank overwrites node.score)
@@ -168,6 +172,7 @@ def query_endpoint(request: QueryRequest) -> dict:
         raw_filters=_raw_filters(request),
         filter_condition=request.filter_condition,
         prompt_name=request.prompt_name,
+        reranker_provider=request.reranker_provider,
         reranker_model=request.reranker_model,
     )
 
@@ -207,7 +212,13 @@ def config() -> dict:
     here — changing it requires editing .env and restarting the service.
     """
     s = get_settings()
+    # Register providers so default_models() below sees every one of them.
+    import src.providers  # noqa: F401
+    from src.config.summary import component_summary
     return {
+        # Resolved active wiring (provider+model per component) for the UI's top banner.
+        "active": component_summary(s),
+        "vector_store": s.vector_store,
         "embedding_provider": s.embedding_provider,
         "llm_provider": s.llm_provider,
         "watsonx_llm_model_id": s.watsonx_llm_model_id,
@@ -215,6 +226,7 @@ def config() -> dict:
         "watsonx_embedding_model_id": s.watsonx_embedding_model_id,
         "fastembed_model_name": s.fastembed_model_name,
         "embedding_model_choices": load_embedding_model_choices(),
+        "embedding_default_models": EmbeddingFactory.default_models(s),
         "opensearch_url": s.opensearch_url,
         "opensearch_index_prefix": s.opensearch_index_prefix,
         "opensearch_hybrid_pipeline": s.opensearch_hybrid_pipeline,
@@ -232,16 +244,81 @@ def config() -> dict:
         "retrieval_top_k": s.retrieval_top_k,
         "similarity_threshold": s.similarity_threshold,
         "rerank_top_n": s.rerank_top_n,
+        "reranker_provider": s.reranker_provider,
         "reranker_model": s.reranker_model,
         "reranker_model_choices": load_reranker_model_choices(),
+        "reranker_default_models": RerankerFactory.default_models(s),
         "citation_chunk_size": s.citation_chunk_size,
         "default_prompt_name": s.default_prompt_name,
     }
+
+# Path to the .env the running process reads; module-level so tests can point it at a temp file.
+ENV_PATH = Path(".env")
+
+def _touch_app() -> None:
+    """Bump app.py's mtime so `uvicorn --reload` (which watches *.py, not .env) restarts the
+    worker, which then re-reads the freshly written .env from a new get_settings()."""
+    Path("app.py").touch()
+
+@router.get("/api/v1/settings")
+def get_settings_full() -> dict:
+    """Every Settings field (secrets included) for the editable UI form. Unlike /config this is
+    the raw model_dump, not a curated non-secret view — it is the write form's source of truth."""
+    return get_settings().model_dump()
+
+@router.post("/api/v1/settings")
+def update_settings(changes: dict, background_tasks: BackgroundTasks) -> dict:
+    """Validate {field_name: value} against Settings, merge into .env, then restart the dev
+    service by touching app.py after the response is sent."""
+    unknown = set(changes) - set(Settings.model_fields)
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"Unknown settings: {sorted(unknown)}")
+    # Type-check the merged config in memory so we never write a .env that fails to boot.
+    merged = {**get_settings().model_dump(), **changes}
+    try:
+        Settings(**merged)
+    except ValidationError as exc:
+        raise HTTPException(status_code=400, detail=exc.errors()) from exc
+    # Map field names to their OLLEN_RAG_* env keys; values written as plain strings.
+    env_changes = {f"OLLEN_RAG_{k.upper()}": str(v) for k, v in changes.items()}
+    merge_into_env(ENV_PATH, env_changes)
+    background_tasks.add_task(_touch_app)
+    return {"restarting": True}
 
 @router.get("/api/v1/indices")
 def indices() -> dict:
     """List service-owned indices with document counts."""
     return {"indices": create_backend().list_indices()}
+
+@router.get("/api/v1/indices/overview")
+def indices_overview() -> dict:
+    """Every existing index across ALL registered vector stores (not just the active one), each
+    with its recorded build config and bucket -> files map. Powers the ingestion page's "what
+    already exists" panel. A store that can't be reached (e.g. OpenSearch down) is reported as
+    unavailable rather than failing the whole call."""
+    import src.providers  # noqa: F401  self-register backends
+    s = get_settings()
+    stores: list[dict] = []
+    for name in sorted(VectorStoreFactory._registry):
+        entry: dict[str, Any] = {"vector_store": name, "active": name == s.vector_store, "available": True, "indices": []}
+        try:
+            backend = VectorStoreFactory.create(name, s.model_copy(update={"vector_store": name}))
+            for ix in backend.list_indices():
+                index_name = ix.get("index")
+                meta = backend.get_index_meta(index_name) or {}
+                entry["indices"].append({
+                    "index": index_name,
+                    "docs_count": int(ix.get("docs.count") or 0),
+                    "embedding_provider": meta.get("embedding_provider"),
+                    "embedding_model": meta.get("embedding_model"),
+                    "chunking": meta.get("chunking"),
+                    "bucket_files": backend.list_bucket_files(index_name),
+                })
+        except Exception as exc:  # backend unreachable / not configured — surface, don't crash the panel
+            entry["available"] = False
+            entry["error"] = str(exc)
+        stores.append(entry)
+    return {"active_vector_store": s.vector_store, "stores": stores}
 
 @router.get("/api/v1/indices/{index_name}/documents")
 def index_documents(index_name: str, offset: int = Query(default=0, ge=0), limit: int = Query(default=20, ge=1, le=200),
@@ -284,3 +361,9 @@ def index_delete(index_name: str) -> dict:
     """Permanently delete an index and all its documents. Irreversible."""
     create_backend().delete_index(index_name)
     return {"deleted": index_name}
+
+@router.delete("/api/v1/indices/{index_name}/buckets/{bucket}")
+def bucket_delete(index_name: str, bucket: str) -> dict:
+    """Permanently delete every document in one bucket of an index. Irreversible."""
+    deleted = create_backend().delete_bucket(index_name, bucket)
+    return {"deleted": deleted, "bucket": bucket, "index": index_name}

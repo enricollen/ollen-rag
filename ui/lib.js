@@ -88,6 +88,36 @@ export function indexOptionsHtml(indices) {
   ).join("");
 }
 
+// Build the reranker <select> as one <optgroup> per provider. The provider rides a
+// data-provider attribute rather than being packed into the option value: model ids contain "/",
+// so any delimiter scheme would be ambiguous. Read it back with
+// select.selectedOptions[0].dataset.provider.
+//
+// A provider with an empty model list is free-form (e.g. the generic "litellm" provider, which
+// accepts any LiteLLM model string); it can only offer whatever model is configured for it, so it
+// contributes an option only when reranker_default_models names one.
+export function rerankerOptionsHtml(cfg) {
+  const choices = cfg.reranker_model_choices || {};
+  const defaults = cfg.reranker_default_models || {};
+  return Object.entries(choices).map(([provider, models]) => {
+    const options = (models && models.length ? models : [defaults[provider]].filter(Boolean));
+    if (!options.length) return "";
+    const items = options.map(model => {
+      const selected = provider === cfg.reranker_provider && model === cfg.reranker_model;
+      return `<option value="${escapeHtml(model)}" data-provider="${escapeHtml(provider)}"${selected ? " selected" : ""}>${escapeHtml(model)}</option>`;
+    }).join("");
+    return `<optgroup label="${escapeHtml(provider)}">${items}</optgroup>`;
+  }).join("");
+}
+
+// Read both halves of a reranker <select> back out: the model is the option value, the provider
+// is on the selected option's dataset.
+export function rerankerSelection(selectId) {
+  const select = document.getElementById(selectId);
+  const option = select?.selectedOptions?.[0];
+  return { reranker_provider: option?.dataset.provider || null, reranker_model: select?.value || null };
+}
+
 export async function fetchBucketList(indexName) {
   return (await api(`/api/v1/indices/${encodeURIComponent(indexName)}/buckets`)).buckets;
 }
@@ -168,6 +198,104 @@ export function wireBucketFiles(root) {
         : files.length ? files.map(f => `<li>📄 ${escapeHtml(f)}</li>`).join("")
         : `<li class="hint">empty</li>`;
     };
+  });
+}
+
+// --- Active-config banner (top of every page) -------------------------------------------------
+// Compact read-out of the live wiring the whole console runs on, sourced from /api/v1/config's
+// `active` block (same resolution as the startup log). Purely informational.
+export function activeBannerHtml(active) {
+  if (!active) return "";
+  const item = (ico, label, val) =>
+    `<span class="ab-item"><span class="ab-ico">${ico}</span><span class="ab-lbl">${escapeHtml(label)}</span><span class="ab-val">${escapeHtml(val)}</span></span>`;
+  return `
+    <div class="active-banner" title="Active configuration — change it in Settings">
+      <span class="ab-title">⚙️ Active Configuration</span>
+      ${item("💬", "LLM", `${active.llm.provider} · ${active.llm.model}`)}
+      ${item("🧮", "Embedding", `${active.embedding.provider} · ${active.embedding.model}`)}
+      ${item("🎯", "Reranker", `${active.reranker.provider} · ${active.reranker.model}`)}
+      ${item("🗄️", "Vector store", active.vector_store)}
+      ${item("🏷️", "Index prefix", active.index_prefix)}
+      ${item("✂️", "Chunking", `${active.chunking.strategy} · ${active.chunking.chunk_size}/${active.chunking.chunk_overlap}`)}
+      ${item("📊", "top_k / top_n", `${active.retrieval_top_k} / ${active.rerank_top_n}`)}
+    </div>`;
+}
+
+// --- Cross-store "existing indexes" panel (shared by Ingestion + Indices) ----------------------
+// One group per vector store (from /api/v1/indices/overview), each a grid of index cards showing
+// build config + bucket chips. `opts.deletable` adds a 🗑 button on active-store cards;
+// `opts.selectable` marks active-store cards clickable (inactive-store indexes can't be browsed or
+// deleted — those endpoints target the active backend only). Wire interactions with
+// wireIndicesOverview(); bucket chips reveal their file list without extra wiring here.
+export function indexOverviewCardHtml(store, ix, { deletable = false, selectable = false, active = true } = {}) {
+  const emb = ix.embedding_provider ? `${ix.embedding_provider}/${ix.embedding_model}` : "unrecorded";
+  const buckets = Object.keys(ix.bucket_files || {});
+  const chips = buckets.length
+    ? buckets.map(b => `<span class="pill kb-bucket" data-store="${escapeHtml(store)}" data-index="${escapeHtml(ix.index)}" data-bucket="${escapeHtml(b)}">📦 ${escapeHtml(b)} <span class="kb-count">${(ix.bucket_files[b] || []).length}</span></span>`).join("")
+    : `<span class="hint">no buckets yet</span>`;
+  const manageable = active;  // browse/delete only work against the active backend
+  const cls = ["kb-index", selectable && manageable ? "kb-index--select" : "", !manageable ? "kb-index--locked" : ""].filter(Boolean).join(" ");
+  const delBtn = deletable && manageable
+    ? `<button type="button" class="kb-del" data-store="${escapeHtml(store)}" data-index="${escapeHtml(ix.index)}" title="Delete this index">🗑 Delete</button>`
+    : "";
+  return `
+    <div class="${cls}" data-store="${escapeHtml(store)}" data-index="${escapeHtml(ix.index)}">
+      <div class="kb-index-head">
+        <code class="inline">${escapeHtml(ix.index)}</code>
+        <span class="kb-head-right"><span class="kb-docs">${ix.docs_count} docs</span>${delBtn}</span>
+      </div>
+      <div class="kb-index-meta">
+        <span class="pill pill-soft">🧮 ${escapeHtml(emb)}</span>
+        <span class="pill pill-soft">✂️ ${escapeHtml(chunkingSummary(ix.chunking))}</span>
+      </div>
+      <div class="kb-buckets">${chips}</div>
+      <div class="kb-bucket-files" data-files-host></div>
+      ${!manageable ? `<div class="hint kb-locked-note">inactive store — switch VECTOR_STORE in Settings to browse or delete</div>` : ""}</div>`;
+}
+
+export function indexOverviewHtml(overview, opts = {}) {
+  if (!overview || !Array.isArray(overview.stores)) return "";
+  const stores = overview.stores.map(st => {
+    const badge = st.active ? '<span class="pill pill-ok">active</span>' : '<span class="pill pill-soft">inactive</span>';
+    let body;
+    if (!st.available) body = `<div class="info-warn">⚠ unavailable — ${escapeHtml(st.error || "cannot reach this store")}</div>`;
+    else if (!st.indices.length) body = `<div class="hint" style="padding:.4rem 0">No indexes in this store yet.</div>`;
+    else body = `<div class="kb-index-grid">${st.indices.map(ix => indexOverviewCardHtml(st.vector_store, ix, { ...opts, active: st.active })).join("")}</div>`;
+    return `
+      <div class="kb-store">
+        <div class="kb-store-head"><span class="kb-store-name">🗄️ ${escapeHtml(st.vector_store)}</span>${badge}</div>
+        ${body}
+      </div>`;
+  }).join("");
+  return stores;
+}
+
+// Wires bucket-chip toggles inside any container holding overview cards. `overview` is the source
+// data (chip -> its files) so no refetch is needed. Optional `onSelect(store, index, cardEl)` fires
+// when a selectable card body is clicked (Indices page uses it to drive the browse panels).
+export function wireIndicesOverview(root, overview, { onSelect, onDelete } = {}) {
+  root.querySelectorAll(".kb-bucket").forEach(chip => {
+    chip.onclick = (e) => {
+      e.stopPropagation();  // don't also trigger card-select
+      const card = chip.closest(".kb-index");
+      const host = card.querySelector("[data-files-host]");
+      const reopen = !chip.classList.contains("selected");
+      card.querySelectorAll(".kb-bucket").forEach(c => c.classList.remove("selected"));
+      if (!reopen) { host.innerHTML = ""; return; }
+      chip.classList.add("selected");
+      const store = overview?.stores.find(s => s.vector_store === chip.dataset.store);
+      const ix = store?.indices.find(i => i.index === chip.dataset.index);
+      const files = ix?.bucket_files?.[chip.dataset.bucket];
+      host.innerHTML = !files || !files.length
+        ? `<div class="hint" style="padding:.2rem 0">empty bucket — no documents</div>`
+        : `<ul class="kb-file-list">${files.map(f => `<li>📄 ${escapeHtml(f)}</li>`).join("")}</ul>`;
+    };
+  });
+  if (onSelect) root.querySelectorAll(".kb-index--select").forEach(card => {
+    card.onclick = () => onSelect(card.dataset.store, card.dataset.index, card);
+  });
+  if (onDelete) root.querySelectorAll(".kb-del").forEach(btn => {
+    btn.onclick = (e) => { e.stopPropagation(); onDelete(btn.dataset.store, btn.dataset.index); };
   });
 }
 

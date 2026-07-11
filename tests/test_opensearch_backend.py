@@ -1,4 +1,5 @@
 """Tests for OpenSearchBackend: admin/meta/dedup via MockTransport, retrieve/add via fake stores."""
+import json
 import httpx
 import pytest
 from llama_index.core.schema import TextNode
@@ -150,11 +151,16 @@ def test_get_index_dim_error_raises():
 
 # --- admin ---
 
-def test_list_indices():
+def test_list_indices_lists_all_and_hides_system():
     def handler(request):
-        assert request.url.path == "/_cat/indices/ollen_rag*"
-        return httpx.Response(200, json=[{"index": "ollen_rag_sentence", "docs.count": "10"}])
-    assert _backend(handler).list_indices()[0]["index"] == "ollen_rag_sentence"
+        assert request.url.path == "/_cat/indices"  # no prefix filter — list everything
+        return httpx.Response(200, json=[
+            {"index": "ollen_rag_sentence", "docs.count": "10"},
+            {"index": "chroma_custom_name", "docs.count": "3"},   # non-prefixed → still listed
+            {"index": ".opensearch-observability", "docs.count": "1"},  # system → hidden
+        ])
+    listed = [ix["index"] for ix in _backend(handler).list_indices()]
+    assert listed == ["ollen_rag_sentence", "chroma_custom_name"]
 
 def test_get_index_documents_excludes_embedding_and_paginates():
     def handler(request):
@@ -167,19 +173,11 @@ def test_get_index_documents_excludes_embedding_and_paginates():
     assert result["total"] == 1
     assert result["documents"][0] == {"id": "n1", "content": "ciao", "metadata": {"bucket": "soc"}}
 
-def test_get_index_documents_rejects_unowned_index():
-    with pytest.raises(ValueError):
-        _backend(lambda r: httpx.Response(200)).get_index_documents("someone-elses-index")
-
 def test_list_buckets():
     def handler(request):
         return httpx.Response(200, json={"aggregations": {"buckets": {"buckets": [
             {"key": "soc", "doc_count": 5}, {"key": "hr", "doc_count": 2}]}}})
     assert _backend(handler).list_buckets("ollen_rag_sentence") == ["soc", "hr"]
-
-def test_list_buckets_rejects_unowned_index():
-    with pytest.raises(ValueError):
-        _backend(lambda r: httpx.Response(200)).list_buckets("someone-elses-index")
 
 def test_list_bucket_files_maps_bucket_to_filenames():
     def handler(request):
@@ -200,9 +198,23 @@ def test_delete_index_calls_delete():
 def test_delete_index_tolerates_already_missing():
     _backend(lambda r: httpx.Response(404)).delete_index("ollen_rag_sentence")  # must not raise
 
-def test_delete_index_rejects_unowned_index():
-    with pytest.raises(ValueError):
-        _backend(lambda r: httpx.Response(200)).delete_index("someone-elses-index")
+# --- delete bucket ---
+
+def test_delete_bucket_calls_delete_by_query():
+    captured = {}
+    def handler(request):
+        captured["method"] = request.method
+        captured["path"] = request.url.path
+        captured["body"] = json.loads(request.read().decode())
+        return httpx.Response(200, json={"deleted": 3})
+    n = _backend(handler).delete_bucket("ollen_rag_sentence", "soc")
+    assert n == 3
+    assert captured["method"] == "POST"
+    assert captured["path"] == "/ollen_rag_sentence/_delete_by_query"
+    assert captured["body"] == {"query": {"term": {"metadata.bucket.keyword": "soc"}}}
+
+def test_delete_bucket_missing_index_returns_zero():
+    assert _backend(lambda r: httpx.Response(404)).delete_bucket("ollen_rag_sentence", "soc") == 0
 
 # --- dedup ---
 
