@@ -34,7 +34,7 @@ class _PassThroughReranker:
 @pytest.fixture
 def mocked_generation(monkeypatch):
     monkeypatch.setattr(generation, "build_backend_retriever", lambda idx, k, raw_filters=None, filter_condition="and": _FakeRetriever())
-    monkeypatch.setattr(generation, "get_reranker", lambda top_n=None, model=None: _PassThroughReranker())
+    monkeypatch.setattr(generation, "create_reranker", lambda top_n=None, provider=None, model=None: _PassThroughReranker())
     monkeypatch.setattr(generation, "create_llm", lambda settings=None: MockLLM(max_tokens=64))
     monkeypatch.setattr(
         generation, "load_prompt",
@@ -57,25 +57,28 @@ def test_generate_wraps_errors(monkeypatch, mocked_generation):
 
 def test_generate_forwards_reranker_model(monkeypatch, mocked_generation):
     captured = {}
-    def fake_get_reranker(top_n=None, model=None):
+    def fake_create_reranker(top_n=None, provider=None, model=None):
         captured["model"] = model
         return _PassThroughReranker()
-    monkeypatch.setattr(generation, "get_reranker", fake_get_reranker)
+    monkeypatch.setattr(generation, "create_reranker", fake_create_reranker)
     generation.generate("Dove dorme il gatto?", reranker_model="cross-encoder/ms-marco-MiniLM-L-6-v2")
     assert captured["model"] == "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
 
-def test_generate_source_score_is_sigmoid_of_rerank_logit(monkeypatch, mocked_generation):
-    """The cross-encoder emits an unbounded logit; sources[].score exposes it as the calibrated
-    relevance probability sigmoid(logit), so consumers get a 0-1 number. Monotonic, so the
-    reranker's ordering is unchanged."""
-    import math
-    class _LogitRetriever:
+def test_generate_source_score_passes_through_the_connectors_probability(monkeypatch, mocked_generation):
+    """sources[].score is whatever the reranker connector produced, unchanged.
+
+    Normalization is the connector's job now (RerankConnector's contract guarantees a 0-1
+    probability), so generation must not apply a second sigmoid. It used to: _relevance() lived
+    here and squashed the score, which would have double-sigmoided LiteLLM's already-calibrated
+    relevance_score."""
+    class _ProbabilityRetriever:
         def retrieve(self, query):
-            return [NodeWithScore(node=TextNode(text="Il gatto dorme.", metadata={}), score=-5.3484)]
-    monkeypatch.setattr(generation, "build_backend_retriever", lambda idx, k, raw_filters=None, filter_condition="and": _LogitRetriever())
+            """A node scored by a connector honoring the 0-1 contract."""
+            return [NodeWithScore(node=TextNode(text="Il gatto dorme.", metadata={}), score=0.00473)]
+    monkeypatch.setattr(generation, "build_backend_retriever", lambda idx, k, raw_filters=None, filter_condition="and": _ProbabilityRetriever())
     result = generation.generate("Dove dorme il gatto?")
-    assert result["sources"][0]["score"] == pytest.approx(1 / (1 + math.exp(5.3484)))
+    assert result["sources"][0]["score"] == pytest.approx(0.00473)
     assert 0.0 < result["sources"][0]["score"] < 1.0
 
 def test_generate_source_score_none_stays_none(monkeypatch, mocked_generation):

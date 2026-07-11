@@ -32,11 +32,33 @@ def test_unknown_provider_raises():
 def test_custom_provider_registration():
     """Extensibility: a provider registered from anywhere is served by the factory."""
     marker = MockEmbedding(embed_dim=4)
-    @emb_mod.EmbeddingFactory.register("fake-test-provider")
+    @emb_mod.EmbeddingFactory.register("fake-test-provider", model_field="fastembed_model_name")
     def _build(settings):
+        """Stand-in builder returning a fixed marker model."""
         return marker
     s = Settings(_env_file=None, embedding_provider="fake-test-provider")
     assert emb_mod.create_embedding_model(s) is marker
+
+def test_registry_model_fields():
+    """provider -> Settings field, the map that used to be copied into four call sites."""
+    assert emb_mod.EmbeddingFactory.model_field("watsonx") == "watsonx_embedding_model_id"
+    assert emb_mod.EmbeddingFactory.model_field("fastembed") == "fastembed_model_name"
+
+def test_register_requires_a_model_field():
+    """You cannot register a provider without saying where its model lives. Ingestion records that
+    model and retrieval restores it, so a provider missing the field would break both."""
+    with pytest.raises(TypeError):
+        emb_mod.EmbeddingFactory.register("no-field")
+
+def test_catalog_covers_every_registered_provider():
+    """Guard against drift: the yaml catalog and the code registry are two lists of providers.
+
+    A provider registered but absent from the yaml cannot be requested per-request (ingestion
+    validates against the yaml), which would be a confusing half-working state.
+    """
+    import src.providers  # noqa: F401  triggers self-registration
+    registered = set(emb_mod.EmbeddingFactory.providers()) - {"fake-test-provider"}
+    assert registered <= set(emb_mod.load_embedding_model_choices())
 
 def test_get_embedding_dim_probes_and_caches():
     emb_mod._DIM_CACHE.clear()
@@ -48,11 +70,11 @@ def test_get_embedding_dim_probes_and_caches():
 def test_load_embedding_model_choices_reads_yaml(tmp_path, monkeypatch):
     yaml_path = tmp_path / "embedding_models.yaml"
     yaml_path.write_text("watsonx:\n  - model-a\nfastembed:\n  - model-b\n  - model-c\n")
-    emb_mod.load_embedding_model_choices.cache_clear()
+    # The lru_cache now lives on load_model_choices and is keyed by path, so this tmp file
+    # gets its own entry and no cache clearing is needed.
     monkeypatch.setattr(emb_mod, "EMBEDDING_MODELS_CONFIG_PATH", yaml_path)
     choices = emb_mod.load_embedding_model_choices()
     assert choices == {"watsonx": ["model-a"], "fastembed": ["model-b", "model-c"]}
-    emb_mod.load_embedding_model_choices.cache_clear()
 
 
 def test_get_embedding_dim_distinguishes_watsonx_model_ids():

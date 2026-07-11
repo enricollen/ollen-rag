@@ -1,5 +1,5 @@
 // App shell: hash router + shared topbar health/strategies polling.
-import { api } from "./lib.js";
+import { api, activeBannerHtml } from "./lib.js";
 import { render as renderSettings } from "./pages/settings.js";
 import { render as renderIngestion } from "./pages/ingestion.js";
 import { render as renderRetrieval } from "./pages/retrieval.js";
@@ -28,11 +28,24 @@ async function navigate() {
   });
   const view = document.getElementById("view");
   view.innerHTML = '<div class="empty-state"><span class="spinner"></span></div>';
+  refreshActiveBanner();  // fire-and-forget: the top wiring read-out, independent of page render
   try {
     await ROUTES[route](view);
   } catch (e) {
     view.innerHTML = `<div class="card">Failed to render page: ${e.message}</div>`;
     console.error(e);
+  }
+}
+
+// Populate the always-on active-config banner from /api/v1/config's resolved `active` block.
+async function refreshActiveBanner() {
+  const host = document.getElementById("active-banner");
+  if (!host) return;
+  try {
+    const cfg = await api("/api/v1/config");
+    host.innerHTML = activeBannerHtml(cfg.active);
+  } catch {
+    host.innerHTML = "";  // config unreachable — hide the banner rather than show a broken one
   }
 }
 

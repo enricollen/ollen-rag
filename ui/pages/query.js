@@ -1,6 +1,6 @@
 // Query (e2e) page: full RAG — retrieval + rerank + cited LLM answer.
 // Inline [n] citations are clickable and jump to the matching source card.
-import { api, errorMessage, escapeHtml, toast, fetchIndexList, indexOptionsHtml, fetchIndexInfo, indexInfoHtml, wireBucketFiles, chunkTextHtml, wireChunks, getQaHistory, addQaToHistory, clearQaHistory } from "../lib.js";
+import { api, errorMessage, escapeHtml, toast, fetchIndexList, indexOptionsHtml, fetchIndexInfo, indexInfoHtml, wireBucketFiles, chunkTextHtml, wireChunks, getQaHistory, addQaToHistory, clearQaHistory, rerankerOptionsHtml, rerankerSelection } from "../lib.js";
 
 const OPERATORS = ["==", "!=", ">", ">=", "<", "<=", "in", "nin"];
 
@@ -63,11 +63,14 @@ function wireQaItem(el) {
 
 export async function render(view) {
   let indices = [];
-  let rerankerDefaults = { reranker_model: null, reranker_model_choices: {} };
+  let rerankerDefaults = { reranker_provider: null, reranker_model: null, reranker_model_choices: {}, reranker_default_models: {} };
   try { indices = await fetchIndexList(); } catch { /* fall back to empty; user can still type filters */ }
   try {
     const cfg = await api("/api/v1/config");
-    rerankerDefaults = { reranker_model: cfg.reranker_model, reranker_model_choices: cfg.reranker_model_choices || {} };
+    rerankerDefaults = {
+      reranker_provider: cfg.reranker_provider, reranker_model: cfg.reranker_model,
+      reranker_model_choices: cfg.reranker_model_choices || {}, reranker_default_models: cfg.reranker_default_models || {},
+    };
   } catch { /* config unavailable, fall back silently */ }
 
   view.innerHTML = `
@@ -101,13 +104,11 @@ export async function render(view) {
         </div>
       </label>
       <details style="margin-top:.9rem">
-        <summary class="hint" style="cursor:pointer">Advanced: reranker model</summary>
+        <summary class="hint" style="cursor:pointer">Advanced: reranker</summary>
         <label class="field" style="margin-top:.6rem">
-          <span class="label-text">Reranker model</span>
+          <span class="label-text">Reranker</span>
           <select id="q-reranker-model">
-            ${Object.entries(rerankerDefaults.reranker_model_choices).map(([label, value]) =>
-              `<option value="${escapeHtml(value)}" ${value === rerankerDefaults.reranker_model ? "selected" : ""}>${escapeHtml(label)}</option>`
-            ).join("")}
+            ${rerankerOptionsHtml(rerankerDefaults)}
           </select>
         </label>
       </details>
@@ -199,7 +200,7 @@ export async function render(view) {
       prompt_name: document.getElementById("q-prompt").value.trim() || null,
       filters: filters.length ? filters : null,
       filter_condition: document.getElementById("q-condition").value,
-      reranker_model: document.getElementById("q-reranker-model").value || null,
+      ...rerankerSelection("q-reranker-model"),
     };
 
     status.innerHTML = '<span class="spinner"></span> generating…';

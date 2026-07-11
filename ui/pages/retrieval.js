@@ -1,6 +1,6 @@
 // Retrieval page: run hybrid BM25+dense retrieval with cross-encoder rerank
 // and optional metadata filters (bucket included) against a chosen index.
-import { api, errorMessage, escapeHtml, toast, getKnownBuckets, fetchIndexList, indexOptionsHtml, fetchIndexInfo, indexInfoHtml, wireBucketFiles, chunkTextHtml, wireChunks } from "../lib.js";
+import { api, errorMessage, escapeHtml, toast, getKnownBuckets, fetchIndexList, indexOptionsHtml, fetchIndexInfo, indexInfoHtml, wireBucketFiles, chunkTextHtml, wireChunks, rerankerOptionsHtml, rerankerSelection } from "../lib.js";
 
 const OPERATORS = ["==", "!=", ">", ">=", "<", "<=", "in", "nin"];
 
@@ -87,11 +87,9 @@ export async function render(view) {
           <input type="number" id="r-threshold" min="0" max="1" step="0.01" placeholder="${defaults.similarity_threshold ?? ''}">
         </label>
         <label class="field">
-          <span class="label-text">Reranker model</span>
+          <span class="label-text">Reranker</span>
           <select id="r-reranker-model">
-            ${Object.entries(defaults.reranker_model_choices || {}).map(([label, value]) =>
-              `<option value="${escapeHtml(value)}" ${value === defaults.reranker_model ? "selected" : ""}>${escapeHtml(label)}</option>`
-            ).join("")}
+            ${rerankerOptionsHtml(defaults)}
           </select>
         </label>
       </div>
@@ -172,7 +170,7 @@ export async function render(view) {
       similarity_threshold: document.getElementById("r-threshold").value !== "" ? Number(document.getElementById("r-threshold").value) : null,
       filters: filters.length ? filters : null,
       filter_condition: document.getElementById("r-condition").value,
-      reranker_model: document.getElementById("r-reranker-model").value || null,
+      ...rerankerSelection("r-reranker-model"),
     };
 
     status.innerHTML = '<span class="spinner"></span>';

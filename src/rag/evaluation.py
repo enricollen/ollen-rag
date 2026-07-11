@@ -152,6 +152,7 @@ def evaluate(
     similarity_threshold: float | None = None,
     use_rerank: bool = True,
     index_name: str | None = None,
+    reranker_provider: str | None = None,
     reranker_model: str | None = None,
 ) -> EvalReport:
     """Run every case through the real retrieval pipeline (bucket-filtered) and score it.
@@ -160,8 +161,9 @@ def evaluate(
     dataset runs against one chosen index (e.g. an index named by embedding model rather
     than by chunking strategy). Otherwise the per-case index_name/strategy is used.
 
-    reranker_model selects the cross-encoder for this run (None = the configured default),
-    which is what makes two runs over the same dataset a like-for-like reranker comparison."""
+    reranker_provider/reranker_model select the reranker for this run (None = the configured
+    default), which is what makes two runs over the same dataset a like-for-like comparison.
+    Reported scores are 0-1 relevance probabilities; ranking metrics are scale-invariant."""
     results = []
     for case in dataset.cases:
         nodes = retrieve(
@@ -173,6 +175,7 @@ def evaluate(
             raw_filters=[{"key": "bucket", "value": case.bucket, "operator": "=="}],
             similarity_threshold=similarity_threshold,
             use_rerank=use_rerank,
+            reranker_provider=reranker_provider,
             reranker_model=reranker_model,
         )
         matched = sum(1 for e in case.expected if any(_matches(e, n) for n in nodes))
@@ -198,28 +201,30 @@ def evaluate(
     params = {
         "top_k": top_k, "rerank_top_n": rerank_top_n,
         "similarity_threshold": similarity_threshold, "use_rerank": use_rerank,
-        "reranker_model": reranker_model,
+        "reranker_provider": reranker_provider, "reranker_model": reranker_model,
     }
     return EvalReport(results=results, params=params)
 
 def main() -> None:
     """CLI: python -m src.rag.evaluation --dataset config/eval/golden.yaml [tuning flags]."""
-    from src.logging_config import OllenLogger
+    from src.logger import OllenLogger
     OllenLogger.setup()
     parser = argparse.ArgumentParser(description="Run the retrieval eval harness against a golden dataset")
     parser.add_argument("--dataset", required=True, help="Path to a golden dataset YAML")
     parser.add_argument("--top-k", type=int, default=None)
     parser.add_argument("--rerank-top-n", type=int, default=None)
     parser.add_argument("--threshold", type=float, default=None, help="Fused-score floor (overrides settings)")
-    parser.add_argument("--no-rerank", action="store_true", help="Score the raw fused ranking without the cross-encoder")
+    parser.add_argument("--no-rerank", action="store_true", help="Score the raw fused ranking without reranking")
     parser.add_argument("--index-name", default=None, help="Run all cases against this index, overriding per-case index/strategy")
-    parser.add_argument("--reranker-model", default=None, help="Cross-encoder to rerank with (label or model id from config/reranker_models.yaml)")
+    parser.add_argument("--reranker-provider", default=None, help="Reranker provider (sentence-transformers | litellm | litellm-watsonx); default: OLLEN_RAG_RERANKER_PROVIDER")
+    parser.add_argument("--reranker-model", default=None, help="Model to rerank with (a model id from that provider's list in config/reranker_models.yaml)")
     args = parser.parse_args()
     report = evaluate(
         load_dataset(args.dataset),
         top_k=args.top_k, rerank_top_n=args.rerank_top_n,
         similarity_threshold=args.threshold, use_rerank=not args.no_rerank,
-        index_name=args.index_name, reranker_model=args.reranker_model,
+        index_name=args.index_name, reranker_provider=args.reranker_provider,
+        reranker_model=args.reranker_model,
     )
     print(report.format_table())
 

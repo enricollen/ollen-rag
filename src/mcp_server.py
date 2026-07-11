@@ -39,13 +39,15 @@ def retrieve(
     filters: list[dict] | None = None,
     filter_condition: str = "and",
     similarity_threshold: float | None = None,
+    reranker_provider: str | None = None,
     reranker_model: str | None = None,
 ) -> dict:
-    """Hybrid search (BM25 + dense) with optional metadata filters, reranked by cross-encoder. similarity_threshold applies a fused-score floor before reranking; reranker_model overrides the default cross-encoder."""
+    """Hybrid search (BM25 + dense) with optional metadata filters, reranked for relevance. similarity_threshold applies a fused-score floor before reranking; reranker_provider/reranker_model override the configured reranker (sentence-transformers | litellm | litellm-watsonx). Node scores are 0-1 relevance probabilities."""
     nodes = retrieve_nodes(
         query, strategy=strategy, index_name=index_name, top_k=top_k,
         rerank_top_n=rerank_top_n, raw_filters=filters, filter_condition=filter_condition,
-        similarity_threshold=similarity_threshold, reranker_model=reranker_model,
+        similarity_threshold=similarity_threshold, reranker_provider=reranker_provider,
+        reranker_model=reranker_model,
     )
     return {
         "nodes": [
@@ -66,14 +68,16 @@ def rag_query(
     filter_condition: str = "and",
     prompt_name: str | None = None,
     similarity_threshold: float | None = None,
+    reranker_provider: str | None = None,
     reranker_model: str | None = None,
 ) -> dict:
-    """Answer a question using RAG: returns the cited answer plus numbered sources. similarity_threshold applies a fused-score floor before reranking; reranker_model overrides the default cross-encoder."""
+    """Answer a question using RAG: returns the cited answer plus numbered sources. similarity_threshold applies a fused-score floor before reranking; reranker_provider/reranker_model override the configured reranker (sentence-transformers | litellm | litellm-watsonx). Source scores are 0-1 relevance probabilities."""
     return generate_answer(
         query, strategy=strategy, index_name=index_name, top_k=top_k,
         rerank_top_n=rerank_top_n, raw_filters=filters,
         filter_condition=filter_condition, prompt_name=prompt_name,
-        similarity_threshold=similarity_threshold, reranker_model=reranker_model,
+        similarity_threshold=similarity_threshold, reranker_provider=reranker_provider,
+        reranker_model=reranker_model,
     )
 
 

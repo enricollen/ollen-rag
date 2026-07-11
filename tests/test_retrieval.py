@@ -1,7 +1,9 @@
-"""Tests for backend-driven hybrid retrieval, embed-model resolution, and reranking wiring."""
-from types import SimpleNamespace
+"""Tests for backend-driven hybrid retrieval, embed-model resolution, and reranking wiring.
+
+The reranker itself is covered by test_reranker_factory.py and test_reranker_sentence_transformers.py;
+here create_reranker is always patched out, so no cross-encoder is ever loaded.
+"""
 import pytest
-import torch
 from llama_index.core.schema import NodeWithScore, TextNode
 from src.exceptions import VectorStoreError
 from src.factories.vector_store import QueryMode
@@ -58,16 +60,6 @@ class _MutatingReranker:
             node.score = -10.0 - offset
         return sorted(nodes, key=lambda n: n.score, reverse=True)[: self.top_n]
 
-class _FakeSentenceTransformerRerank:
-    """Stands in for llama_index's SentenceTransformerRerank: records constructor args, no model load.
-
-    Carries a `_model` with a Sigmoid activation, like the CrossEncoder that sentence-transformers
-    builds for a single-label model that ships no config_sentence_transformers.json (e.g. bge-m3)."""
-    def __init__(self, model, top_n):
-        self.model = model
-        self.top_n = top_n
-        self._model = SimpleNamespace(activation_fn=torch.nn.Sigmoid())
-
 def _patch_embed(monkeypatch):
     monkeypatch.setattr(retrieval, "create_embedding_model", lambda settings=None: _StubEmbed())
 
@@ -77,7 +69,7 @@ def test_retrieve_reranks(monkeypatch):
     nodes = [_node("low", 0.1), _node("high", 0.9), _node("mid", 0.5)]
     backend = _FakeBackend(nodes=nodes)
     monkeypatch.setattr(retrieval, "create_backend", lambda settings=None: backend)
-    monkeypatch.setattr(retrieval, "get_reranker", lambda top_n=None, model=None: _FakeReranker(top_n or 2))
+    monkeypatch.setattr(retrieval, "create_reranker", lambda top_n=None, provider=None, model=None: _FakeReranker(top_n or 2))
     _patch_embed(monkeypatch)
     result = retrieval.retrieve("question?", rerank_top_n=2)
     assert [n.node.text for n in result] == ["high", "mid"]
@@ -86,13 +78,25 @@ def test_retrieve_reranks(monkeypatch):
 def test_retrieve_forwards_reranker_model(monkeypatch):
     captured = {}
     monkeypatch.setattr(retrieval, "create_backend", lambda settings=None: _FakeBackend(nodes=[_node("only", 0.5)]))
-    def fake_get_reranker(top_n=None, model=None):
+    def fake_create_reranker(top_n=None, provider=None, model=None):
         captured["model"] = model
         return _FakeReranker(top_n or 2)
-    monkeypatch.setattr(retrieval, "get_reranker", fake_get_reranker)
+    monkeypatch.setattr(retrieval, "create_reranker", fake_create_reranker)
     _patch_embed(monkeypatch)
     retrieval.retrieve("q?", reranker_model="cross-encoder/ms-marco-MiniLM-L-6-v2")
     assert captured["model"] == "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
+def test_retrieve_forwards_reranker_provider(monkeypatch):
+    """Per-request provider override reaches the factory alongside the model."""
+    captured = {}
+    monkeypatch.setattr(retrieval, "create_backend", lambda settings=None: _FakeBackend(nodes=[_node("only", 0.5)]))
+    def fake_create_reranker(top_n=None, provider=None, model=None):
+        captured["provider"] = provider
+        return _FakeReranker(top_n or 2)
+    monkeypatch.setattr(retrieval, "create_reranker", fake_create_reranker)
+    _patch_embed(monkeypatch)
+    retrieval.retrieve("q?", reranker_provider="litellm-watsonx")
+    assert captured["provider"] == "litellm-watsonx"
 
 def test_retrieve_wraps_store_errors(monkeypatch):
     monkeypatch.setattr(retrieval, "create_backend", lambda settings=None: _FakeBackend(error=RuntimeError("os down")))
@@ -104,7 +108,7 @@ def test_retrieve_empty_short_circuits(monkeypatch):
     monkeypatch.setattr(retrieval, "create_backend", lambda settings=None: _FakeBackend(nodes=[]))
     _patch_embed(monkeypatch)
     called = {"rerank": False}
-    monkeypatch.setattr(retrieval, "get_reranker", lambda *a, **k: called.__setitem__("rerank", True))
+    monkeypatch.setattr(retrieval, "create_reranker", lambda *a, **k: called.__setitem__("rerank", True))
     assert retrieval.retrieve("q?") == []
     assert called["rerank"] is False  # no rerank on empty result
 
@@ -117,7 +121,7 @@ def test_retrieve_debug_returns_all_legs(monkeypatch):
         QueryMode.HYBRID: [_node("low", 0.1), _node("high", 0.9)],
     }
     monkeypatch.setattr(retrieval, "create_backend", lambda settings=None: _FakeBackend(per_mode=per_mode))
-    monkeypatch.setattr(retrieval, "get_reranker", lambda top_n=None, model=None: _FakeReranker(top_n or 2))
+    monkeypatch.setattr(retrieval, "create_reranker", lambda top_n=None, provider=None, model=None: _FakeReranker(top_n or 2))
     _patch_embed(monkeypatch)
     result = retrieval.retrieve_debug("question?", rerank_top_n=2)
     assert set(result) == {"bm25", "dense", "hybrid", "reranked"}
@@ -132,7 +136,7 @@ def test_retrieve_debug_hybrid_leg_keeps_fused_scores(monkeypatch):
     cross-encoder logits (negative, unbounded) where a fused 0-1 score is documented."""
     per_mode = {QueryMode.HYBRID: [_node("high", 1.0), _node("low", 0.25)]}
     monkeypatch.setattr(retrieval, "create_backend", lambda settings=None: _FakeBackend(per_mode=per_mode))
-    monkeypatch.setattr(retrieval, "get_reranker", lambda top_n=None, model=None: _MutatingReranker(top_n or 2))
+    monkeypatch.setattr(retrieval, "create_reranker", lambda top_n=None, provider=None, model=None: _MutatingReranker(top_n or 2))
     _patch_embed(monkeypatch)
     result = retrieval.retrieve_debug("q?", rerank_top_n=2)
     assert [n.score for n in result["hybrid"]] == [1.0, 0.25]
@@ -144,7 +148,7 @@ def test_retrieve_debug_empties_unsupported_legs(monkeypatch):
     per_mode = {QueryMode.DENSE: [_node("dense-a", 0.9)]}
     backend = _FakeBackend(per_mode=per_mode, modes={QueryMode.DENSE})
     monkeypatch.setattr(retrieval, "create_backend", lambda settings=None: backend)
-    monkeypatch.setattr(retrieval, "get_reranker", lambda top_n=None, model=None: _FakeReranker(top_n or 2))
+    monkeypatch.setattr(retrieval, "create_reranker", lambda top_n=None, provider=None, model=None: _FakeReranker(top_n or 2))
     _patch_embed(monkeypatch)
     result = retrieval.retrieve_debug("q?")
     assert result["bm25"] == [] and result["hybrid"] == []
@@ -155,10 +159,10 @@ def test_retrieve_debug_forwards_reranker_model(monkeypatch):
     per_mode = {QueryMode.HYBRID: [_node("only", 0.5)]}
     captured = {}
     monkeypatch.setattr(retrieval, "create_backend", lambda settings=None: _FakeBackend(per_mode=per_mode))
-    def fake_get_reranker(top_n=None, model=None):
+    def fake_create_reranker(top_n=None, provider=None, model=None):
         captured["model"] = model
         return _FakeReranker(top_n or 2)
-    monkeypatch.setattr(retrieval, "get_reranker", fake_get_reranker)
+    monkeypatch.setattr(retrieval, "create_reranker", fake_create_reranker)
     _patch_embed(monkeypatch)
     retrieval.retrieve_debug("q?", reranker_model="cross-encoder/ms-marco-MiniLM-L-6-v2")
     assert captured["model"] == "cross-encoder/ms-marco-MiniLM-L-6-v2"
@@ -175,7 +179,7 @@ def test_resolve_embed_uses_index_recorded_model(monkeypatch):
         captured["fastembed_model_name"] = settings.fastembed_model_name
         return _StubEmbed()
     monkeypatch.setattr(retrieval, "create_embedding_model", fake_create_embedding_model)
-    monkeypatch.setattr(retrieval, "get_reranker", lambda top_n=None, model=None: _FakeReranker(2))
+    monkeypatch.setattr(retrieval, "create_reranker", lambda top_n=None, provider=None, model=None: _FakeReranker(2))
     retrieval.retrieve("q?", index_name="ollen_rag_sentence")
     assert captured["provider"] == "fastembed"
     assert captured["fastembed_model_name"] == "BAAI/bge-large-en-v1.5"
@@ -188,7 +192,7 @@ def test_resolve_embed_falls_back_when_no_meta(monkeypatch):
         captured["provider"] = settings.embedding_provider
         return _StubEmbed()
     monkeypatch.setattr(retrieval, "create_embedding_model", fake_create_embedding_model)
-    monkeypatch.setattr(retrieval, "get_reranker", lambda top_n=None, model=None: _FakeReranker(2))
+    monkeypatch.setattr(retrieval, "create_reranker", lambda top_n=None, provider=None, model=None: _FakeReranker(2))
     retrieval.retrieve("q?", index_name="ollen_rag_sentence")
     assert captured["provider"] == retrieval.get_settings().embedding_provider  # unchanged global default
 
@@ -201,53 +205,3 @@ def test_build_backend_retriever_runs_hybrid_query(monkeypatch):
     nodes = r._retrieve(QueryBundle(query_str="q?"))
     assert [n.node.text for n in nodes] == ["hit"]
     assert backend.calls == [QueryMode.HYBRID]
-
-# --- reranker helpers (unchanged behavior) ---
-
-def test_load_reranker_model_choices_reads_yaml(tmp_path, monkeypatch):
-    yaml_path = tmp_path / "reranker_models.yaml"
-    yaml_path.write_text("default: models/reranker\nalt: cross-encoder/ms-marco-MiniLM-L-6-v2\n")
-    retrieval.load_reranker_model_choices.cache_clear()
-    monkeypatch.setattr(retrieval, "RERANKER_MODELS_CONFIG_PATH", yaml_path)
-    choices = retrieval.load_reranker_model_choices()
-    assert choices == {"default": "models/reranker", "alt": "cross-encoder/ms-marco-MiniLM-L-6-v2"}
-    retrieval.load_reranker_model_choices.cache_clear()
-
-def test_get_reranker_caches_per_model(monkeypatch):
-    retrieval._rerankers.clear()
-    monkeypatch.setattr(retrieval, "SentenceTransformerRerank", _FakeSentenceTransformerRerank)
-    monkeypatch.setattr(retrieval, "load_reranker_model_choices", lambda: {"default": "models/reranker", "alt": "cross-encoder/ms-marco-MiniLM-L-6-v2"})
-    a = retrieval.get_reranker(top_n=3, model="models/reranker")
-    b = retrieval.get_reranker(top_n=5, model="cross-encoder/ms-marco-MiniLM-L-6-v2")
-    a_again = retrieval.get_reranker(top_n=7, model="models/reranker")
-    assert a.model == "models/reranker"
-    assert b.model == "cross-encoder/ms-marco-MiniLM-L-6-v2"
-    assert a_again is a  # cached, same instance
-    assert a_again.top_n == 7  # top_n still updates on cache hit
-    retrieval._rerankers.clear()
-
-def test_get_reranker_forces_identity_activation(monkeypatch):
-    """sentence-transformers picks the activation per model: models/reranker ships a config
-    declaring Identity (raw logits), while bge-reranker-v2-m3 ships none and so defaults to
-    Sigmoid (probabilities). node.score would then mean different things per model, and
-    generation._relevance() would sigmoid an already-sigmoided score. Pin it to Identity so
-    every reranker emits raw logits and exactly one sigmoid is applied downstream."""
-    retrieval._rerankers.clear()
-    monkeypatch.setattr(retrieval, "SentenceTransformerRerank", _FakeSentenceTransformerRerank)
-    reranker = retrieval.get_reranker(top_n=3, model="models/reranker")
-    assert isinstance(reranker._model.activation_fn, torch.nn.Identity)
-    retrieval._rerankers.clear()
-
-def test_get_reranker_none_model_uses_settings_default(monkeypatch):
-    retrieval._rerankers.clear()
-    monkeypatch.setattr(retrieval, "SentenceTransformerRerank", _FakeSentenceTransformerRerank)
-    reranker = retrieval.get_reranker()
-    assert reranker.model == retrieval.get_settings().reranker_model
-    retrieval._rerankers.clear()
-
-def test_get_reranker_rejects_unknown_model(monkeypatch):
-    retrieval._rerankers.clear()
-    monkeypatch.setattr(retrieval, "load_reranker_model_choices", lambda: {"default": "models/reranker"})
-    with pytest.raises(ValueError):
-        retrieval.get_reranker(model="banana")
-    retrieval._rerankers.clear()
