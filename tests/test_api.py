@@ -374,8 +374,8 @@ def test_eval_endpoint_requires_exactly_one_source(client):
     }).status_code == 422
 
 def test_eval_endpoint_invalid_case_schema_422(client):
-    # missing bucket -> parse_dataset ValueError -> 422
-    resp = client.post("/api/v1/eval/retrieval", json={"cases": [{"query": "q", "expected": [{"file_name": "a"}]}]})
+    # missing query -> parse_dataset ValueError -> 422 (bucket is optional; eval is bucket-agnostic)
+    resp = client.post("/api/v1/eval/retrieval", json={"cases": [{"expected": [{"file_name": "a"}]}]})
     assert resp.status_code == 422
 
 def test_eval_endpoint_expected_missing_file_name_422(client):

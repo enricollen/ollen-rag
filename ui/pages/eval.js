@@ -55,7 +55,7 @@ function caseCardHtml(c, k) {
       <div class="eval-case-header">
         <div class="eval-case-query">${escapeHtml(c.query)}</div>
         <div style="display:flex;align-items:center;gap:.6rem;flex-shrink:0">
-          <span class="pill" style="border-color:var(--accent)">bucket: ${escapeHtml(c.bucket)}</span>
+          ${c.bucket ? `<span class="pill" style="border-color:var(--accent)">bucket: ${escapeHtml(c.bucket)}</span>` : ""}
           ${statusBadge}
         </div>
       </div>
@@ -78,7 +78,7 @@ export async function render(view) {
 
   view.innerHTML = `
     <h1 class="page-title">Retrieval Eval</h1>
-    <p class="page-sub">Run the golden-dataset eval harness (<code class="inline">POST /api/v1/eval/retrieval</code>). Each case requires a <code class="inline">bucket</code>. Metrics: hit-rate, recall@k, MRR — overall and per bucket.</p>
+    <p class="page-sub">Run the golden-dataset eval harness (<code class="inline">POST /api/v1/eval/retrieval</code>). Retrieval is <strong>bucket-agnostic</strong> — it searches the whole index, so make sure the chosen index actually contains the dataset's documents (a mismatch just returns 0 hits). A case's optional <code class="inline">bucket</code> only labels its metrics. Metrics: hit-rate, recall@k, MRR — overall and per label.</p>
 
     <div class="card">
       <label class="field">

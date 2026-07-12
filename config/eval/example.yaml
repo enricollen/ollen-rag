@@ -1,8 +1,10 @@
 description: >
-  Example golden retrieval dataset. Each case is a query + a bucket + one or more
-  expected matches, where a match is a source file_name and a verbatim substring
-  that must appear in a retrieved chunk's text (case-insensitive substring match).
-  Bucket is mandatory per case (documents are partitioned by bucket at retrieval time).
+  Example golden retrieval dataset. Each case is a query + one or more expected
+  matches, where a match is a source file_name and a verbatim substring that must
+  appear in a retrieved chunk's text (case-insensitive substring match).
+  Eval is bucket-agnostic: it searches the whole index, so the chosen index must
+  contain the expected documents. A case's `bucket` is optional and only labels its
+  metrics (per-label breakdown); it never scopes retrieval.
 
   Run: python -m src.rag.evaluation --dataset config/eval/example.yaml --top-k 5
 
