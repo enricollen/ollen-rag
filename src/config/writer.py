@@ -10,8 +10,11 @@ def merge_into_env(env_path: Path, changes: dict[str, str]) -> None:
     """Replace the value of each changed key in place; append keys not already present.
 
     Preserves comments, blank lines, section banners and trailing inline comments.
+    Creates the file when it does not yet exist (first save on a fresh install / volume).
     Guarantees no trailing blank line at EOF."""
-    lines = env_path.read_text().split("\n")
+    # A brand-new install (or an empty Docker config volume) has no .env yet: start from empty.
+    text = env_path.read_text() if env_path.exists() else ""
+    lines = text.split("\n") if text else []
     remaining = dict(changes)
     out: list[str] = []
     for line in lines:

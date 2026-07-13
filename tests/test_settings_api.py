@@ -25,10 +25,12 @@ def test_post_valid_writes_env_and_triggers_restart(client, tmp_path, monkeypatc
     env = tmp_path / ".env"
     env.write_text("OLLEN_RAG_CHUNK_SIZE=512")
     monkeypatch.setattr("src.api.routes.ENV_PATH", env)
+    # Force the reload path (as under `uvicorn --reload`) so apply touches app.py deterministically.
+    monkeypatch.setattr("src.config.restart._reloader_active", lambda: True)
     touched = {}
-    monkeypatch.setattr("src.api.routes._touch_app", lambda: touched.setdefault("hit", True))
+    monkeypatch.setattr("src.config.restart._touch_app", lambda: touched.setdefault("hit", True))
     r = client.post("/api/v1/settings", json={"chunk_size": 256})
     assert r.status_code == 200
-    assert r.json() == {"restarting": True}
+    assert r.json() == {"restarting": True, "restart_mode": "reload"}
     assert env.read_text() == "OLLEN_RAG_CHUNK_SIZE=256"
     assert touched.get("hit") is True
