@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 from fastapi import APIRouter, BackgroundTasks, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field, ValidationError
+from src.config.restart import resolve_restart_mode, apply_restart
 from src.config.writer import merge_into_env
 from src.factories.chunker import CHUNKING_STRATEGIES
 from src.factories.embeddings import EmbeddingFactory, load_embedding_model_choices
@@ -254,11 +255,6 @@ def config() -> dict:
 # Path to the .env the running process reads; module-level so tests can point it at a temp file.
 ENV_PATH = Path(".env")
 
-def _touch_app() -> None:
-    """Bump app.py's mtime so `uvicorn --reload` (which watches *.py, not .env) restarts the
-    worker, which then re-reads the freshly written .env from a new get_settings()."""
-    Path("app.py").touch()
-
 @router.get("/api/v1/settings")
 def get_settings_full() -> dict:
     """Every Settings field (secrets included) for the editable UI form. Unlike /config this is
@@ -281,8 +277,10 @@ def update_settings(changes: dict, background_tasks: BackgroundTasks) -> dict:
     # Map field names to their OLLEN_RAG_* env keys; values written as plain strings.
     env_changes = {f"OLLEN_RAG_{k.upper()}": str(v) for k, v in changes.items()}
     merge_into_env(ENV_PATH, env_changes)
-    background_tasks.add_task(_touch_app)
-    return {"restarting": True}
+    mode = resolve_restart_mode(get_settings().restart_mode)
+    # exit-mode must run AFTER the response is sent, or the client never gets it.
+    background_tasks.add_task(apply_restart, mode)
+    return {"restarting": mode != "manual", "restart_mode": mode}
 
 @router.get("/api/v1/indices")
 def indices() -> dict:

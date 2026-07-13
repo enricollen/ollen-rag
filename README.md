@@ -44,15 +44,43 @@ cp .env.example .env   # then fill in credentials
 
 ## Run
 
-```bash
-# Local development (needs a reachable OpenSearch)
-uvicorn app:app --reload
+### Docker (turnkey — recommended for a first look)
 
-# Full local stack (service + OpenSearch + Dashboards)
+```bash
 docker compose up
 ```
 
-Ports: service `8000`, OpenSearch `9200`, Dashboards `5601`. The first image build is slow because of the LibreOffice layer.
+Brings up the service + a bundled Ollama + on-disk Chroma — **no API keys**. Open
+`http://localhost:8000/ui/`; a first-run wizard walks you through picking a provider and (for cloud
+providers) entering credentials, testing them, and saving. Config persists on a volume. Add
+OpenSearch with `docker compose --profile opensearch up`.
+
+The image ships a **CPU-only** torch build by default (keeps it ~5–6 GB smaller). For GPU inference
+of the local cross-encoder reranker, build with the CUDA wheel and expose the GPU:
+
+```bash
+TORCH_FLAVOR=gpu docker compose up --build   # needs the NVIDIA Container Toolkit + the deploy block in compose
+```
+
+The wizard shows the detected compute (CPU/GPU) read-only — the flavor is fixed at build time, not
+switchable at runtime.
+
+### Plain Python service
+
+```bash
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+uvicorn app:app --reload
+```
+
+The same wizard runs here too (visit `/ui/` before configuring). `--reload` lets the wizard apply
+config by reloading; without a supervisor the wizard tells you to restart manually. Point
+`OLLEN_RAG_*` at your own OpenSearch/Ollama/cloud as needed.
+
+Ports: service `8000`, Ollama `11434`, and (with the `opensearch` profile) OpenSearch `9200`,
+Dashboards `5601`. The first Docker build is slow because of the LibreOffice layer and the baked-in
+local models.
 
 ## Web console
 
@@ -232,7 +260,7 @@ All settings live in `src/settings.py`, overridable via `OLLEN_RAG_*` environmen
 | `OLLEN_RAG_WATSONX_RERANKER_MODEL_ID` | `cross-encoder/ms-marco-minilm-l-12-v2` | Bare model id for `litellm-watsonx` rerank |
 | `OLLEN_RAG_CITATION_CHUNK_SIZE` | `512` | Citation chunk size for generation |
 | `OLLEN_RAG_PROMPTS_DIR` | `config/prompts` | Prompt templates directory |
-| `OLLEN_RAG_DEFAULT_PROMPT_NAME` | `rag_answer` | Default prompt template |
+| `OLLEN_RAG_DEFAULT_PROMPT_NAME` | `rag_answer_en` | Default prompt template (`rag_answer_en` English, `rag_answer_it` Italian) |
 | `OLLEN_RAG_LOG_LEVEL` | `INFO` | `DEBUG` for per-chunk detail |
 
 ## Tests

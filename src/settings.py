@@ -43,9 +43,10 @@ class Settings(BaseSettings):
     embedding_provider: str = "watsonx"  # watsonx | fastembed | litellm | litellm-watsonx | litellm-ollama
     llm_provider: str = "watsonx"  # watsonx | litellm | litellm-watsonx | litellm-ollama
     fastembed_model_name: str = "BAAI/bge-small-en-v1.5"
-    # Local cache for fastembed ONNX model files (coherent with reranker_model under models/);
-    # persists downloads so the model is fetched from the hub once, then reused offline.
-    fastembed_cache_dir: str = "models/fastembed"
+    # Local cache for fastembed ONNX model files; persists downloads so the model is fetched from
+    # the hub once, then reused offline. A relative path valid in both Docker (writable /app) and a
+    # plain checkout -- independent of the developer-only models/ symlink.
+    fastembed_cache_dir: str = "./.cache/fastembed"
     # OpenSearch connection and hybrid search
     opensearch_url: str = "http://localhost:9200"
     opensearch_user: str = ""
@@ -83,7 +84,7 @@ class Settings(BaseSettings):
     # generation
     citation_chunk_size: int = 512
     prompts_dir: str = "config/prompts"
-    default_prompt_name: str = "rag_answer"
+    default_prompt_name: str = "rag_answer_en"
     # retrieval eval harness
     eval_dir: str = "config/eval"
     # ingest-time enrichment
@@ -92,6 +93,9 @@ class Settings(BaseSettings):
     # logging
     # DEBUG | INFO | WARNING | ERROR | CRITICAL (case-insensitive); invalid -> INFO
     log_level: str = "DEBUG"
+    # Config-apply restart strategy: "" (auto) | reload | exit | manual. Docker sets "exit";
+    # plain `uvicorn --reload` auto-detects "reload"; a bare process falls back to "manual".
+    restart_mode: str = ""
 
     @property
     def effective_litellm_embedding_api_base(self) -> str:

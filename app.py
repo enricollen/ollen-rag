@@ -56,6 +56,9 @@ def create_app() -> FastAPI:
         lifespan=combine_lifespans(app_lifespan, mcp_app.lifespan),
     )
     app.include_router(router)
+    # First-run setup wizard endpoints (status + provider credential test).
+    from src.api.onboarding import router as onboarding_router
+    app.include_router(onboarding_router)
     app.mount("/mcp", mcp_app)
     # Manual e2e test UI (static, no build step) served at /ui/
     app.mount("/ui", StaticFiles(directory="ui", html=True), name="ui")

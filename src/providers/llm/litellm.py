@@ -127,6 +127,10 @@ class LiteLLMOllamaConnector(LiteLLMConnector):
         self.model_name = f"ollama/{self._settings.ollama_model}"
         self.max_new_tokens = self._settings.litellm_max_new_tokens
         self.temperature = self._settings.litellm_temperature
+        # Pull the chat model on first use if the local Ollama doesn't have it yet, so a model
+        # chosen after startup (e.g. via the wizard) never fails with 'model not found'.
+        from src.providers.ollama import ensure_model
+        ensure_model(self._settings.ollama_api_base, self._settings.ollama_model)
 
     def _call_kwargs(self) -> dict[str, Any]:
         """Ollama is unauthenticated; the api_base is the only thing it needs."""

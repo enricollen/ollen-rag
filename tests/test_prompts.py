@@ -24,6 +24,6 @@ def test_load_prompt_missing_raises(tmp_path):
         load_prompt("nope", settings=_settings(tmp_path))
 
 def test_default_rag_answer_prompt_exists():
-    # The shipped citation prompt must load with default settings
-    prompt = load_prompt("rag_answer", settings=Settings(_env_file=None))
+    # The shipped default citation prompt (English) must load with default settings
+    prompt = load_prompt("rag_answer_en", settings=Settings(_env_file=None))
     assert "{context_str}" in prompt.template and "{query_str}" in prompt.template
