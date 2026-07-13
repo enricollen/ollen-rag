@@ -86,6 +86,12 @@ class VectorStoreBackend(ABC):
     def delete_bucket(self, index: str, bucket: str) -> int:
         """Delete every document in `index` whose metadata.bucket == `bucket`; return the count deleted. Idempotent: missing index/bucket returns 0."""
 
+    @abstractmethod
+    def get_index_vectors(self, index: str, limit: int = 2000) -> list[dict]:
+        """Up to `limit` chunks with their embedding vector, text, and metadata:
+        [{id, embedding, text, metadata}, ...]. Order is backend-native (no random
+        sampling) — powers the Indices Visualizer's 2D projection."""
+
 class VectorStoreFactory:
     """Decorator registry mapping a backend name to its VectorStoreBackend class."""
     _registry: dict[str, type[VectorStoreBackend]] = {}

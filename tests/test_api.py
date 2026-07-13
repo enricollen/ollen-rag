@@ -216,6 +216,7 @@ class _AdminBackend:
         self.documents = {"total": 0, "documents": []}
         self.delete_error = None
         self.deleted = None
+        self.vectors = []
     def list_indices(self):
         return self.indices
     def list_buckets(self, index):
@@ -232,6 +233,8 @@ class _AdminBackend:
         if self.delete_error:
             raise self.delete_error
         self.deleted = index
+    def get_index_vectors(self, index, limit=2000):
+        return self.vectors[:limit]
 
 def _use_backend(monkeypatch, backend):
     """Patch the routes' backend accessor to return *backend*."""
@@ -456,3 +459,63 @@ def test_ingest_status_exposes_progress_and_stage(client, monkeypatch):
     status = client.get(f"/api/v1/ingest/{response.json()['job_id']}").json()
     assert status["progress"] == 100
     assert status["stage"] == "done"
+
+# --- indices vectors (visualizer) ---
+
+def test_index_vectors_projects_and_colors_by_bucket(client, monkeypatch):
+    backend = _use_backend(monkeypatch, _AdminBackend())
+    backend.indices = [{"index": "ollen_rag_sentence", "docs.count": "2"}]
+    backend.vectors = [
+        {"id": "n1", "embedding": [0.0, 0.0, 0.0], "text": "alpha chunk text", "metadata": {"bucket": "b1", "file_name": "a.pdf"}},
+        {"id": "n2", "embedding": [10.0, 10.0, 10.0], "text": "beta chunk text", "metadata": {"bucket": "b2", "file_name": "b.pdf"}},
+    ]
+    response = client.get("/api/v1/indices/ollen_rag_sentence/vectors")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 2
+    assert body["returned"] == 2
+    assert body["capped"] is False
+    assert sorted(body["buckets"]) == ["b1", "b2"]
+    assert len(body["points"]) == 2
+    p1 = next(p for p in body["points"] if p["id"] == "n1")
+    assert p1["bucket"] == "b1"
+    assert p1["file_name"] == "a.pdf"
+    assert p1["text"] == "alpha chunk text"
+    assert p1["length"] == len("alpha chunk text")
+    assert isinstance(p1["x"], float) and isinstance(p1["y"], float)
+
+def test_index_vectors_truncates_long_text(client, monkeypatch):
+    backend = _use_backend(monkeypatch, _AdminBackend())
+    backend.indices = [{"index": "ollen_rag_sentence", "docs.count": "2"}]
+    long_text = "a" * 500
+    backend.vectors = [
+        {"id": "n1", "embedding": [0.0, 0.0], "text": long_text, "metadata": {}},
+        {"id": "n2", "embedding": [1.0, 1.0], "text": "short", "metadata": {}},
+    ]
+    body = client.get("/api/v1/indices/ollen_rag_sentence/vectors").json()
+    p1 = next(p for p in body["points"] if p["id"] == "n1")
+    assert len(p1["text"]) == 200
+    assert p1["length"] == 500
+
+def test_index_vectors_capped_flag(client, monkeypatch):
+    backend = _use_backend(monkeypatch, _AdminBackend())
+    backend.indices = [{"index": "ollen_rag_sentence", "docs.count": "3"}]
+    backend.vectors = [
+        {"id": "n1", "embedding": [0.0, 0.0], "text": "x", "metadata": {}},
+        {"id": "n2", "embedding": [1.0, 1.0], "text": "y", "metadata": {}},
+    ]
+    response = client.get("/api/v1/indices/ollen_rag_sentence/vectors?limit=2")
+    body = response.json()
+    assert body["total"] == 3
+    assert body["returned"] == 2
+    assert body["capped"] is True
+
+def test_index_vectors_too_few_chunks_returns_empty_points(client, monkeypatch):
+    backend = _use_backend(monkeypatch, _AdminBackend())
+    backend.indices = [{"index": "ollen_rag_sentence", "docs.count": "1"}]
+    backend.vectors = [{"id": "n1", "embedding": [0.0, 0.0], "text": "x", "metadata": {}}]
+    response = client.get("/api/v1/indices/ollen_rag_sentence/vectors")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["points"] == []
+    assert body["buckets"] == []

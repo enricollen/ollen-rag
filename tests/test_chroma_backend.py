@@ -185,3 +185,28 @@ def test_delete_bucket_missing_bucket_returns_zero(tmp_path):
 
 def test_delete_bucket_missing_index_returns_zero(tmp_path):
     assert _backend(tmp_path).delete_bucket("ollen_rag_nope", "b1") == 0
+
+# --- vectors (visualizer) ---
+
+def test_get_index_vectors_returns_embeddings_text_metadata(tmp_path):
+    b = _backend(tmp_path)
+    b.add_nodes(IDX, [
+        _node("triage red code", "a.pdf", "b1", embedding=(0.1, 0.2, 0.3)),
+        _node("green code info", "b.pdf", "b2", embedding=(0.9, 0.8, 0.7)),
+    ])
+    vecs = b.get_index_vectors(IDX)
+    assert len(vecs) == 2
+    by_text = {v["text"]: v for v in vecs}
+    # Chroma stores embeddings as float32 internally, so compare with tolerance.
+    assert by_text["triage red code"]["embedding"] == pytest.approx([0.1, 0.2, 0.3])
+    assert by_text["triage red code"]["metadata"]["bucket"] == "b1"
+    assert "_node_content" not in by_text["triage red code"]["metadata"]
+
+def test_get_index_vectors_respects_limit(tmp_path):
+    b = _backend(tmp_path)
+    b.add_nodes(IDX, [_node(f"t{i}", f"{i}.pdf", "b1", file_hash=f"h{i}") for i in range(5)])
+    vecs = b.get_index_vectors(IDX, limit=2)
+    assert len(vecs) == 2
+
+def test_get_index_vectors_missing_index_returns_empty(tmp_path):
+    assert _backend(tmp_path).get_index_vectors("ollen_rag_nope") == []

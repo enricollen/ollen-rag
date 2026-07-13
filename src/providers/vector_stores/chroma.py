@@ -197,6 +197,31 @@ class ChromaBackend(VectorStoreBackend):
         ]
         return {"total": total, "documents": documents}
 
+    def get_index_vectors(self, index: str, limit: int = 2000) -> list[dict]:
+        """Up to `limit` chunks with their embedding, text, and metadata, for the
+        Indices Visualizer's 2D projection. Missing index returns an empty list
+        (same idiom as delete_bucket/find_duplicate_file for a missing collection)."""
+        col = self._maybe(index)
+        if col is None:
+            return []
+        got = col.get(limit=limit, include=["embeddings", "documents", "metadatas"])
+        ids = got.get("ids") or []
+        # Chroma returns embeddings as a numpy array; truthiness on a multi-element array
+        # raises, so check for None explicitly rather than using `or []`.
+        embeddings = got.get("embeddings")
+        embeddings = [] if embeddings is None else embeddings
+        docs = got.get("documents") or []
+        metas = got.get("metadatas") or []
+        return [
+            {
+                "id": ids[i],
+                "embedding": list(embeddings[i]),
+                "text": docs[i] if i < len(docs) else "",
+                "metadata": {k: v for k, v in (metas[i] or {}).items() if k not in _INTERNAL_META_KEYS},
+            }
+            for i in range(len(ids))
+        ]
+
     def _all_metadatas(self, index: str) -> list[dict]:
         """Fetch every record's metadata (Chroma has no server-side aggregation; grouped in Python)."""
         col = self._open(index)

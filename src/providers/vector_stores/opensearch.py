@@ -265,6 +265,31 @@ class OpenSearchBackend(VectorStoreBackend):
             ],
         }
 
+    def get_index_vectors(self, index: str, limit: int = 2000) -> list[dict]:
+        """Up to `limit` chunks with their embedding, text, and metadata, for the
+        Indices Visualizer's 2D projection. A missing index (404) returns an empty list."""
+        try:
+            response = self._client.post(
+                f"/{index}/_search",
+                params={"size": limit},
+                json={"_source": {"excludes": ["metadata._node_content"]}},
+            )
+            if response.status_code == 404:
+                return []
+            response.raise_for_status()
+            body = response.json()
+        except httpx.HTTPError as exc:
+            raise VectorStoreError(f"Failed to fetch vectors for '{index}': {exc}") from exc
+        return [
+            {
+                "id": hit["_id"],
+                "embedding": hit["_source"].get("embedding", []),
+                "text": hit["_source"].get("content", ""),
+                "metadata": hit["_source"].get("metadata", {}),
+            }
+            for hit in body["hits"]["hits"]
+        ]
+
     def list_buckets(self, index: str) -> list[str]:
         """Return distinct 'bucket' metadata values present in an index, for preloading UI dropdowns."""
         try:
