@@ -1,60 +1,70 @@
 # ollen-rag-service
 
-A generic RAG (Retrieval-Augmented Generation) microservice. It ingests documents (PDF, Office, images) into a pluggable vector store (OpenSearch or Chroma), retrieves relevant chunks with hybrid search, and generates cited answers with an LLM. Capabilities are exposed both as a REST API and as MCP tools, so it can serve human-facing apps and AI agents alike.
+A provider-agnostic RAG (Retrieval-Augmented Generation) microservice. It ingests documents (PDF, Office, images) into a pluggable vector store, retrieves relevant chunks with hybrid search, and generates cited answers with an LLM. Every capability is exposed as both a **REST API** and **MCP tools**, so the service fits human-facing apps and AI agents alike.
+
+- **Pluggable everything** — LLM, embeddings, reranker, and vector store are each selected independently by env var (watsonx.ai native, local fastembed/cross-encoder, or any LiteLLM vendor).
+- **Two vector stores** — OpenSearch (dense + sparse + hybrid) and Chroma (embedded, dense-only).
+- **Cited answers** — numbered `[n]` citations mapped back to source chunks.
+- **Web console** — a single-page UI mirrors the API for humans.
 
 ## Architecture
 
-The service is a FastAPI application (`app.py`) with a FastMCP server mounted at `/mcp`. It is organized around the three classic RAG phases:
+A FastAPI application (`app.py`) with a FastMCP server mounted at `/mcp`, organized around the three RAG phases:
 
-1. **Ingestion** (`src/rag/ingestion.py`) — documents are parsed with `liteparse` (LibreOffice/ImageMagick handle Office and image formats), split into chunks using a configurable chunking strategy, embedded (watsonx.ai, local fastembed, or any LiteLLM embedding vendor), and stored in the configured vector store (OpenSearch or Chroma). Each chunking strategy writes to its own index (`{prefix}_{strategy}`). REST ingestion runs as an async background job.
-2. **Retrieval** (`src/rag/retrieval.py`) — hybrid search (BM25 + dense vectors, fused by an OpenSearch search pipeline) with optional metadata filters, followed by reranking (a local cross-encoder, or any LiteLLM rerank endpoint).
+1. **Ingestion** (`src/rag/ingestion.py`) — documents are parsed with `liteparse` (LibreOffice/ImageMagick cover Office and image formats), chunked by a configurable strategy, embedded, and written to the active vector store. Each strategy writes to its own index (named after the strategy by default). REST ingestion runs as an async background job.
+2. **Retrieval** (`src/rag/retrieval.py`) — hybrid search (BM25 + dense vectors) with optional metadata filters, followed by reranking. Reranked scores are normalized to 0–1 relevance probabilities inside each connector, so providers are swappable without rescaling anything downstream.
+3. **Generation** (`src/rag/generation.py`) — reranked chunks are passed to the LLM with a YAML prompt template (`config/prompts/`); the answer carries numbered `[n]` citations mapping to `sources[]`.
 
-   Reranked node scores are **0–1 relevance probabilities** for every provider, normalized inside the connector. Vendors disagree on the scale they return: Cohere and Jina emit a probability, while the local cross-encoder and watsonx's rerank endpoint emit an unbounded logit (a live watsonx call scored two passages at `6.902` and `-0.0005`). Each connector declares which it gets and applies a sigmoid only when needed, so nothing downstream has to know or rescale.
+Each phase picks its provider independently — e.g. watsonx generation with local Ollama embeddings and a local cross-encoder reranker.
 
-   This changed in the LiteLLM reranker release — previously `/api/v1/retrieve` and the MCP `retrieve` tool returned raw logits while only `/api/v1/query` sources were normalized. Ranking is unaffected (sigmoid is monotonic); only the reported numbers changed.
-3. **Generation** (`src/rag/generation.py`) — the reranked chunks are passed to the LLM (watsonx.ai, or any LiteLLM vendor) with a YAML prompt template (`config/prompts/`); the answer includes numbered `[n]` citations that map to the returned `sources[]`.
+### Provider registry
 
-All three phases pick their provider independently, so a common setup is watsonx generation with local Ollama embeddings and a local cross-encoder reranker.
+Everything pluggable follows one decorator-registry pattern: a factory in `src/factories/` defines the interface, concrete providers in `src/providers/<capability>/` self-register on import. Providers are grouped by capability:
 
-Supporting modules: `src/settings.py` (env-driven configuration), `src/factories/` (provider-agnostic factories: embeddings, LLM, reranker, chunkers, and the vector-store abstraction), `src/providers/` (concrete implementations), `src/api/routes.py` (REST), `src/mcp_server.py` (MCP tools).
+| Capability | Factory | Providers |
+|------------|---------|-----------|
+| LLM | `LLMConnectorFactory` | `watsonx`, `litellm`, `litellm-watsonx`, `litellm-ollama` |
+| Embeddings | `EmbeddingFactory` | `watsonx`, `fastembed`, `litellm`, `litellm-watsonx`, `litellm-ollama` |
+| Reranker | `RerankerFactory` | `sentence-transformers`, `litellm`, `litellm-watsonx` |
+| Vector store | `VectorStoreFactory` | `opensearch`, `chroma` |
 
-Everything pluggable follows the same decorator-registry pattern: a factory in `src/factories/` defines the interface, concrete providers in `src/providers/` self-register on import, and each `create_*` lazy-imports `src.providers` for the registration side effect. Providers are grouped **by capability**:
+The `VectorStoreBackend` interface (`src/factories/vector_store.py`) is the parity contract: every method is `@abstractmethod`, so a new backend must implement the full surface (retrieval, index/bucket admin, dedup, lifecycle) before it can instantiate. Backends declare their `supported_query_modes`; an unsupported mode falls back to the richest one available (a dense-only store degrades hybrid to dense).
 
-- `src/providers/llm/` — `LLMConnectorFactory`; `ConnectorLLM` adapts the configured connector to the llama_index interface `CitationQueryEngine` needs (watsonx native, plus `litellm`, `litellm-watsonx`, `litellm-ollama` via LiteLLM).
-- `src/providers/embeddings/` — `EmbeddingFactory` (watsonx native, fastembed local, plus `litellm`, `litellm-watsonx`, `litellm-ollama` via LiteLLM).
-- `src/providers/reranker/` — `RerankerFactory`; `ConnectorRerank` adapts the configured connector to the llama_index postprocessor interface (`sentence-transformers` local cross-encoder, plus `litellm`, `litellm-watsonx`). Every connector returns 0–1 relevance probabilities, so providers are swappable without rescaling anything downstream.
-- `src/factories/model_catalog.py` — everything about which model belongs to which provider: the curated yaml catalogs, and the provider→`Settings`-field resolution that `EmbeddingFactory` and `RerankerFactory` delegate here. Each factory stays self-contained (same shape as `LLMConnectorFactory`); only the resolution logic is shared, because that is the part whose hand-written copies used to drift.
-- `src/providers/vector_stores/` — `VectorStoreFactory`; a **store-agnostic** `VectorStoreBackend` interface (`src/factories/vector_store.py`) that owns retrieval, ingest writes, and all index/bucket admin, hiding llama_index behind each backend. The interface is the parity contract: every method is `@abstractmethod`, so a new backend cannot instantiate until it implements the whole surface — retrieval, `list_indices`/`get_index_documents`, bucket listing (`list_buckets`/`list_bucket_files`), dedup (`find_duplicate_file`), and lifecycle (`delete_index`, `delete_bucket`). Feature parity is enforced by the compiler, not by convention. Backends declare their `supported_query_modes` (dense/sparse/hybrid); an unsupported requested mode gracefully falls back to the richest supported one (this is the one place a new store legitimately does *less* — e.g. a dense-only store degrades hybrid to dense). Two backends ship today: **OpenSearch** (dense + sparse + hybrid) and **Chroma** (embedded, dense-only, on-disk at `OLLEN_RAG_CHROMA_PATH`); Qdrant/others are add-a-file recipes.
-
-Adding a provider = one file in the matching `src/providers/<capability>/` folder with a `@register("name", model_field="...")` decorator + one import line in that folder's `__init__.py`, then select it via the relevant `OLLEN_RAG_*_PROVIDER` / `OLLEN_RAG_VECTOR_STORE` env var. Embedding and reranker providers also need an entry in `config/{embedding,reranker}_models.yaml` — an empty list there means "any model string", which is how the generic `litellm` provider reaches a new vendor with no code change.
+**Adding a provider:** drop one file in the matching `src/providers/<capability>/` folder with a `@register("name", model_field="...")` decorator, add one import line to that folder's `__init__.py`, then select it via the relevant `OLLEN_RAG_*_PROVIDER` / `OLLEN_RAG_VECTOR_STORE` env var. Embedding and reranker providers also need an entry in `config/{embedding,reranker}_models.yaml` (an empty list there means "any model string").
 
 ## Setup
 
 ```bash
-# Create a virtualenv (Python 3.12) and install dependencies
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# Configure credentials: copy the template and fill in watsonx.ai values
-cp .env.example .env
+cp .env.example .env   # then fill in credentials
 ```
 
 ## Run
 
-Local development (needs a reachable OpenSearch, e.g. from the compose stack):
-
 ```bash
+# Local development (needs a reachable OpenSearch)
 uvicorn app:app --reload
-```
 
-Full local stack (service + OpenSearch + OpenSearch Dashboards):
-
-```bash
+# Full local stack (service + OpenSearch + Dashboards)
 docker compose up
 ```
 
-Ports: service on `8000`, OpenSearch on `9200`, Dashboards on `5601`. The first image build is slow because of the LibreOffice layer.
+Ports: service `8000`, OpenSearch `9200`, Dashboards `5601`. The first image build is slow because of the LibreOffice layer.
+
+## Web console
+
+A single-page console is served at `http://localhost:8000/ui/`. An **Active Configuration** banner (effective providers, embedding model, chunking, top-k) sits atop every page; the sidebar walks the RAG phases.
+
+| Settings — editable `.env` mirror | Indices — across all vector stores |
+| :---: | :---: |
+| <img src="docs/screenshots/settings.png" width="420" alt="Settings page"> | <img src="docs/screenshots/indices.png" width="420" alt="Indices page"> |
+| **Ingestion KB — build or extend an index** | **Retrieval — hybrid search + rerank, no LLM** |
+| <img src="docs/screenshots/ingestion.png" width="420" alt="Ingestion page"> | <img src="docs/screenshots/retrieval.png" width="420" alt="Retrieval page"> |
+| **Query (e2e) — cited RAG answer** | **Eval — golden-dataset retrieval metrics** |
+| <img src="docs/screenshots/query.png" width="420" alt="Query page"> | <img src="docs/screenshots/eval.png" width="420" alt="Eval page"> |
 
 ## REST API
 
@@ -64,20 +74,20 @@ Ports: service on `8000`, OpenSearch on `9200`, Dashboards on `5601`. The first 
 | GET | `/api/v1/strategies` | List available chunking strategies |
 | POST | `/api/v1/ingest` | Upload a document, start an async ingestion job (returns `job_id`, HTTP 202) |
 | GET | `/api/v1/ingest/{job_id}` | Poll ingestion job status/result |
-| POST | `/api/v1/retrieve` | Hybrid retrieval + rerank; returns scored chunks plus the separate BM25/dense/hybrid legs |
+| POST | `/api/v1/retrieve` | Hybrid retrieval + rerank; returns scored chunks plus the BM25/dense/hybrid legs |
 | POST | `/api/v1/query` | Full RAG: retrieval + rerank + cited LLM answer |
-| POST | `/api/v1/eval/retrieval` | Score a golden dataset against retrieval (hit-rate/recall@k/MRR) |
-| GET | `/api/v1/config` | Effective non-secret settings (for the UI Settings page) |
-| GET | `/api/v1/indices` | List service-owned indices with doc counts (active store) |
-| GET | `/api/v1/indices/overview` | Every index across **all** registered vector stores, each tagged active/inactive with its build config + bucket→files map |
-| GET | `/api/v1/indices/{name}/documents` | Paginate raw stored chunks (content + metadata), optionally scoped to a `bucket` |
-| GET | `/api/v1/indices/{name}/info` | Full recorded build config: embedding, chunking, dim, doc count, buckets, bucket→files map |
+| POST | `/api/v1/eval/retrieval` | Score a golden dataset (hit-rate/recall@k/MRR) |
+| GET | `/api/v1/config` | Effective non-secret settings |
+| GET | `/api/v1/indices` | Service-owned indices with doc counts (active store) |
+| GET | `/api/v1/indices/overview` | Every index across **all** registered stores, tagged active/inactive with build config + bucket→files map |
+| GET | `/api/v1/indices/{name}/documents` | Paginate stored chunks (content + metadata), optionally scoped to a `bucket` |
+| GET | `/api/v1/indices/{name}/info` | Full recorded build config: embedding, chunking, dim, doc count, buckets |
 | GET | `/api/v1/indices/{name}/embedding` | Embedding provider/model the index was built with |
 | GET | `/api/v1/indices/{name}/buckets` | Distinct `bucket` values in an index |
 | DELETE | `/api/v1/indices/{name}` | Permanently delete an index and all its documents |
-| DELETE | `/api/v1/indices/{name}/buckets/{bucket}` | Permanently delete one bucket (all docs where `metadata.bucket == bucket`); returns the deleted count. Idempotent |
+| DELETE | `/api/v1/indices/{name}/buckets/{bucket}` | Permanently delete one bucket; returns deleted count. Idempotent |
 
-### Ingest a document (multipart, with optional metadata JSON)
+### Ingest a document
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/ingest \
@@ -86,54 +96,14 @@ curl -X POST http://localhost:8000/api/v1/ingest \
   -F 'metadata={"project": "acme", "lang": "it"}'
 # -> {"job_id": "…", "status": "pending"}
 
-# Poll the job
-curl http://localhost:8000/api/v1/ingest/<job_id>
+curl http://localhost:8000/api/v1/ingest/<job_id>   # poll
 ```
 
-Job polling also returns live `progress` (0–100) and `stage`
-(`parsing → chunking → enriching → storing → done`), fine-grained during the slow
-LLM loops (llm chunking, keyword enrichment); the UI shows it as a progress bar on
-the job card.
+Job polling returns live `progress` (0–100) and `stage` (`parsing → chunking → enriching → storing → done`). The KB panel accepts multiple files per submit and processes them strictly one at a time, so heavy LLM ingests never run concurrently; a failed file is reported and the batch continues.
 
-The KB panel accepts multiple files per submit (shared bucket/strategy/metadata/
-enrichment) and processes them strictly one at a time: each file is uploaded only
-after the previous ingestion finished, so heavy LLM ingests never run concurrently.
-A failed file is reported and the batch continues with the next one.
+**Deduplication** is by content hash: each chunk stores a `file_hash` (sha256 of the bytes), and ingestion is skipped when the same hash already exists in the target index **within the same bucket**. A skipped job completes with `"skipped_duplicate": true` and `"duplicate_of": "<file_name>"`.
 
-Duplicate uploads are detected by content hash: every chunk stores a `file_hash`
-(sha256 of the uploaded bytes) in its metadata, and ingestion is skipped when the same
-hash already exists in the target index **within the same bucket** (`metadata.bucket`;
-the same file in a different bucket is not a duplicate). A skipped job completes with
-`"skipped_duplicate": true` and `"duplicate_of": "<existing file_name>"` in its result.
-
-### Managing indices and buckets
-
-The **Indices** page shows every index across all registered vector stores
-(`/api/v1/indices/overview`); indices in the active store are browsable and
-deletable, inactive-store ones are read-only (browse/delete target the active
-backend). Two irreversible, confirmation-gated **Delete** actions are available:
-
-- **Delete an index** — 🗑 Delete on an index card removes the whole index and all
-  its documents (`DELETE /api/v1/indices/{name}`).
-- **Delete a bucket** — 🗑 Delete on a 📦 bucket card removes just that bucket's
-  documents (`DELETE /api/v1/indices/{name}/buckets/{bucket}`), leaving the rest of
-  the index intact. The response reports how many documents were deleted; the call
-  is idempotent (a missing index or bucket deletes nothing and returns `0`). Works
-  identically on OpenSearch (a `_delete_by_query` on `metadata.bucket`) and Chroma
-  (a `collection.delete(where={"bucket": …})`).
-
-### LLM keyword enrichment (opt-in)
-
-Set `enrich_keywords=true` on the ingest form (or the `OLLEN_RAG_ENRICH_KEYWORDS=true`
-service default, or the MCP tool parameter) to run one LLM call per chunk at ingest
-time, extracting 5–10 search keywords stored in `metadata.keywords`. Keywords are
-embedded with the chunk (better dense recall) and searched by the BM25 leg via
-`multi_match` on `content` + `metadata.keywords^2` (better lexical recall). Slower
-ingestion; an LLM failure fails the job (re-upload retries cleanly). Already-indexed
-chunks are not backfilled — re-ingest to enrich. Measure the impact with the eval
-harness (`POST /api/v1/eval/retrieval`) on the same dataset before/after enabling it.
-
-### Retrieve chunks (with metadata filters)
+### Retrieve chunks
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/retrieve \
@@ -148,7 +118,7 @@ curl -X POST http://localhost:8000/api/v1/retrieve \
   }'
 ```
 
-### Ask a question (cited RAG answer)
+### Ask a question
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/query \
@@ -157,56 +127,62 @@ curl -X POST http://localhost:8000/api/v1/query \
 # -> {"answer": "… [1] …", "sources": [{"id": 1, "text": "…", "metadata": {…}}, …]}
 ```
 
+### LLM keyword enrichment (opt-in)
+
+Set `enrich_keywords=true` (ingest form, `OLLEN_RAG_ENRICH_KEYWORDS=true`, or the MCP param) to run one LLM call per chunk at ingest time, extracting 5–10 keywords into `metadata.keywords`. Keywords are embedded with the chunk (better dense recall) and searched by BM25 via `multi_match` on `content` + `metadata.keywords^2` (better lexical recall). Slower ingestion; already-indexed chunks are not backfilled. Measure the impact with the eval harness before/after enabling it.
+
+### Managing indices and buckets
+
+The **Indices** page lists every index across all registered stores. Indices in the active store are browsable and deletable; inactive-store ones are read-only. Two irreversible, confirmation-gated deletes: a whole index (`DELETE /api/v1/indices/{name}`) or a single bucket (`DELETE /api/v1/indices/{name}/buckets/{bucket}`, idempotent). Both work identically on OpenSearch and Chroma.
+
 ## Retrieval evaluation
 
-Golden datasets live in `config/eval/*.yaml` (see `config/eval/example.yaml`; every case is
-scoped to a mandatory `bucket`). Metrics: hit-rate@k, recall@k, MRR — overall and per bucket.
+Golden datasets live in `config/eval/*.yaml` (see `config/eval/example.yaml`; each case is scoped to a mandatory `bucket`). Metrics: hit-rate@k, recall@k, MRR — overall and per bucket.
 
-- CLI: `python -m src.rag.evaluation --dataset config/eval/golden.yaml [--top-k 10 --threshold 0.2 --no-rerank --reranker-provider litellm-watsonx]`
-- API: `POST /api/v1/eval/retrieval` with `{"dataset": "golden"}` or inline `{"cases": [...]}` plus
-  optional `top_k`, `rerank_top_n`, `similarity_threshold`, `use_rerank`.
+```bash
+# CLI
+python -m src.rag.evaluation --dataset config/eval/golden.yaml [--top-k 10 --threshold 0.2 --no-rerank]
 
-Run it before and after changing hybrid weights, `similarity_threshold`, chunking strategy or the
-reranker — retrieval tuning without a baseline is guesswork. Requires a running OpenSearch with
-the corpus ingested.
+# API
+curl -X POST http://localhost:8000/api/v1/eval/retrieval -d '{"dataset": "golden"}'
+```
+
+Run it before and after changing hybrid weights, `similarity_threshold`, chunking strategy, or the reranker — retrieval tuning without a baseline is guesswork.
 
 ## MCP server
 
-The FastMCP server is mounted at `http://localhost:8000/mcp` (streamable HTTP transport). It exposes four tools, each delegating to the same rag layer as the REST API so their behavior stays in lockstep:
+The FastMCP server is mounted at `http://localhost:8000/mcp` (streamable HTTP transport), exposing four tools that delegate to the same RAG layer as the REST API:
 
-- `ingest_document` — parse/chunk/embed/store a **server-local** file path. Params mirror the REST ingest form: `strategy`, `index_name`, `metadata`, `enrich_keywords`, `embedding_provider`, `embedding_model`, `chunk_params`.
-- `retrieve` — hybrid BM25+dense + rerank. Params: `strategy`, `index_name`, `top_k`, `rerank_top_n`, `filters`, `filter_condition`, `similarity_threshold`, `reranker_provider`, `reranker_model`.
-- `rag_query` — cited RAG answer. Same params as `retrieve` plus `prompt_name`.
-- `list_indices` — service-owned indices with doc counts.
-
-Example MCP client configuration:
+| Tool | Purpose |
+|------|---------|
+| `ingest_document` | Parse/chunk/embed/store a **server-local** file path |
+| `retrieve` | Hybrid BM25 + dense retrieval + rerank |
+| `rag_query` | Cited RAG answer |
+| `list_indices` | Service-owned indices with doc counts |
 
 ```json
 {
   "mcpServers": {
-    "ollen-rag": {
-      "type": "http",
-      "url": "http://localhost:8000/mcp"
-    }
+    "ollen-rag": { "type": "http", "url": "http://localhost:8000/mcp" }
   }
 }
 ```
 
 ## Chunking strategies
 
-By default each strategy stores its chunks in a dedicated index named after the strategy (e.g. `sentence`), so the same corpus can be indexed and compared under multiple strategies. Passing an explicit `index_name` (ingest form / MCP param) overrides this — useful to name an index by embedding model or corpus rather than strategy. **One index = one build config**: an index's `_meta` records its embedding provider/model and chunking config, and ingestion rejects a document whose embedding or chunking differs from what the index was built with.
+Each strategy stores its chunks in a dedicated index named after the strategy, so one corpus can be indexed and compared under multiple strategies. Pass an explicit `index_name` to override (e.g. to name an index by embedding model or corpus). **One index = one build config:** an index's `_meta` records its embedding provider/model and chunking config, and ingestion rejects any document whose embedding or chunking differs from what the index was built with.
 
-| Strategy | Splitter | Index (default) | Notes |
-|----------|----------|-----------------|-------|
-| `sentence` | SentenceSplitter | `sentence` | Default; sentence-aware, `chunk_size`/`chunk_overlap` |
-| `token` | TokenTextSplitter | `token` | Fixed token windows, `chunk_size`/`chunk_overlap` |
-| `semantic` | SemanticSplitterNodeParser | `semantic` | Embedding-based topic breakpoints (`semantic_breakpoint_percentile`) |
-| `window` | SentenceWindowNodeParser | `window` | One sentence per chunk plus a ±`sentence_window_size` context window |
-| `llm` | LLM-driven topic splitter | `llm` | LLM groups sentences into topics (`llm_chunk_max_size`/`llm_chunk_window_size`); slowest |
+| Strategy | Splitter | Notes |
+|----------|----------|-------|
+| `sentence` | SentenceSplitter | Default; sentence-aware, `chunk_size`/`chunk_overlap` |
+| `token` | TokenTextSplitter | Fixed token windows |
+| `semantic` | SemanticSplitterNodeParser | Embedding-based topic breakpoints |
+| `window` | SentenceWindowNodeParser | One sentence per chunk plus a ±`sentence_window_size` context window |
+| `llm` | LLM-driven topic splitter | LLM groups sentences into topics; slowest |
 
 ## Configuration
 
-All settings live in `src/settings.py` and are overridable via `OLLEN_RAG_*` environment variables (a local `.env` file is honored; see `.env.example`).
+All settings live in `src/settings.py`, overridable via `OLLEN_RAG_*` environment variables (a local `.env` is honored; see `.env.example`).
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -217,27 +193,27 @@ All settings live in `src/settings.py` and are overridable via `OLLEN_RAG_*` env
 | `OLLEN_RAG_WATSONX_EMBEDDING_MODEL_ID` | `ibm/slate-125m-english-rtrvr` | Embedding model id |
 | `OLLEN_RAG_WATSONX_MAX_NEW_TOKENS` | `800` | Max generated tokens |
 | `OLLEN_RAG_WATSONX_TEMPERATURE` | `0.1` | LLM temperature |
-| `OLLEN_RAG_WATSONX_REPETITION_PENALTY` | `1.15` | Penalizes repeated tokens. Too high (>1.3) causes garbled/merged-word output |
-| `OLLEN_RAG_EMBEDDING_PROVIDER` | `watsonx` | `watsonx` (native SDK), `fastembed` (local), `litellm` (generic), `litellm-watsonx`, `litellm-ollama` |
-| `OLLEN_RAG_LLM_PROVIDER` | `watsonx` | `watsonx` (native SDK), `litellm` (generic), `litellm-watsonx`, `litellm-ollama` |
-| `OLLEN_RAG_RERANKER_PROVIDER` | `sentence-transformers` | `sentence-transformers` (local cross-encoder), `litellm` (generic), `litellm-watsonx`. Ollama exposes no rerank endpoint |
-| `OLLEN_RAG_LITELLM_MODEL` | (empty) | Full LiteLLM model string for the generic LLM provider, e.g. `openai/gpt-4o` |
-| `OLLEN_RAG_LITELLM_API_BASE` | (empty) | Endpoint override for the generic providers; the shared fallback for the two below |
-| `OLLEN_RAG_LITELLM_API_KEY` | (empty) | API key for the generic providers; the shared fallback for the two below |
+| `OLLEN_RAG_WATSONX_REPETITION_PENALTY` | `1.15` | Penalizes repeated tokens; >1.3 garbles output |
+| `OLLEN_RAG_EMBEDDING_PROVIDER` | `watsonx` | `watsonx`, `fastembed`, `litellm`, `litellm-watsonx`, `litellm-ollama` |
+| `OLLEN_RAG_LLM_PROVIDER` | `watsonx` | `watsonx`, `litellm`, `litellm-watsonx`, `litellm-ollama` |
+| `OLLEN_RAG_RERANKER_PROVIDER` | `sentence-transformers` | `sentence-transformers`, `litellm`, `litellm-watsonx` (Ollama has no rerank endpoint) |
+| `OLLEN_RAG_LITELLM_MODEL` | (empty) | LiteLLM model string for the generic LLM provider, e.g. `openai/gpt-4o` |
+| `OLLEN_RAG_LITELLM_API_BASE` | (empty) | Endpoint override; shared fallback for the two below |
+| `OLLEN_RAG_LITELLM_API_KEY` | (empty) | API key; shared fallback for the two below |
 | `OLLEN_RAG_LITELLM_MAX_NEW_TOKENS` | `800` | Generation cap for `litellm` and `litellm-ollama` |
 | `OLLEN_RAG_LITELLM_TEMPERATURE` | `0.1` | Sampling temperature for `litellm` and `litellm-ollama` |
-| `OLLEN_RAG_LITELLM_EMBEDDING_MODEL` | (empty) | Full LiteLLM model string for the generic embedding provider, e.g. `openai/text-embedding-3-small` |
+| `OLLEN_RAG_LITELLM_EMBEDDING_MODEL` | (empty) | LiteLLM model string for the generic embedding provider |
 | `OLLEN_RAG_LITELLM_EMBEDDING_API_BASE` | (empty) | Embedding endpoint; falls back to `OLLEN_RAG_LITELLM_API_BASE` |
 | `OLLEN_RAG_LITELLM_EMBEDDING_API_KEY` | (empty) | Embedding key; falls back to `OLLEN_RAG_LITELLM_API_KEY` |
-| `OLLEN_RAG_LITELLM_RERANK_MODEL` | (empty) | Full LiteLLM model string for the generic rerank provider, e.g. `cohere/rerank-v3.5` |
+| `OLLEN_RAG_LITELLM_RERANK_MODEL` | (empty) | LiteLLM model string for the generic rerank provider, e.g. `cohere/rerank-v3.5` |
 | `OLLEN_RAG_LITELLM_RERANK_API_BASE` | (empty) | Rerank endpoint; falls back to `OLLEN_RAG_LITELLM_API_BASE` |
 | `OLLEN_RAG_LITELLM_RERANK_API_KEY` | (empty) | Rerank key; falls back to `OLLEN_RAG_LITELLM_API_KEY` |
 | `OLLEN_RAG_OLLAMA_API_BASE` | `http://localhost:11434` | Local Ollama endpoint |
-| `OLLEN_RAG_OLLAMA_MODEL` | `llama3.1` | Bare Ollama chat model tag; the connector adds the `ollama/` prefix |
-| `OLLEN_RAG_OLLAMA_EMBEDDING_MODEL` | `nomic-embed-text` | Bare Ollama embedding model tag; the chat model cannot embed |
+| `OLLEN_RAG_OLLAMA_MODEL` | `llama3.1` | Bare Ollama chat model tag (connector adds `ollama/`) |
+| `OLLEN_RAG_OLLAMA_EMBEDDING_MODEL` | `nomic-embed-text` | Bare Ollama embedding model tag |
 | `OLLEN_RAG_FASTEMBED_MODEL_NAME` | `BAAI/bge-small-en-v1.5` | fastembed model (local embeddings) |
-| `OLLEN_RAG_VECTOR_STORE` | `opensearch` | Vector-store backend: `opensearch` (dense+sparse+hybrid) or `chroma` (embedded, dense-only). Process-global — one running service = one store, no cross-DB mixing. |
-| `OLLEN_RAG_CHROMA_PATH` | `./chroma_db` | On-disk location for the embedded Chroma store (when `OLLEN_RAG_VECTOR_STORE=chroma`) |
+| `OLLEN_RAG_VECTOR_STORE` | `opensearch` | `opensearch` (dense+sparse+hybrid) or `chroma` (embedded, dense-only). Process-global |
+| `OLLEN_RAG_CHROMA_PATH` | `./chroma_db` | On-disk location for the embedded Chroma store |
 | `OLLEN_RAG_OPENSEARCH_URL` | `http://localhost:9200` | OpenSearch URL |
 | `OLLEN_RAG_OPENSEARCH_USER` | (empty) | OpenSearch basic-auth user |
 | `OLLEN_RAG_OPENSEARCH_PASSWORD` | (empty) | OpenSearch basic-auth password |
@@ -250,27 +226,27 @@ All settings live in `src/settings.py` and are overridable via `OLLEN_RAG_*` env
 | `OLLEN_RAG_CHUNK_OVERLAP` | `64` | Chunk overlap (sentence/token) |
 | `OLLEN_RAG_SEMANTIC_BREAKPOINT_PERCENTILE` | `95` | Semantic split threshold |
 | `OLLEN_RAG_SENTENCE_WINDOW_SIZE` | `3` | Window size for `window` strategy |
-| `OLLEN_RAG_RETRIEVAL_TOP_K` | `10` | Candidates fetched from OpenSearch |
+| `OLLEN_RAG_RETRIEVAL_TOP_K` | `10` | Candidates fetched from the store |
 | `OLLEN_RAG_RERANK_TOP_N` | `4` | Chunks kept after reranking |
-| `OLLEN_RAG_RERANKER_MODEL` | `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1` | Local cross-encoder, used when `OLLEN_RAG_RERANKER_PROVIDER=sentence-transformers` |
-| `OLLEN_RAG_WATSONX_RERANKER_MODEL_ID` | `cross-encoder/ms-marco-minilm-l-12-v2` | Bare model id for `litellm-watsonx` rerank; the `watsonx/` prefix is added at call time |
+| `OLLEN_RAG_RERANKER_MODEL` | `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1` | Local cross-encoder (`sentence-transformers`) |
+| `OLLEN_RAG_WATSONX_RERANKER_MODEL_ID` | `cross-encoder/ms-marco-minilm-l-12-v2` | Bare model id for `litellm-watsonx` rerank |
 | `OLLEN_RAG_CITATION_CHUNK_SIZE` | `512` | Citation chunk size for generation |
 | `OLLEN_RAG_PROMPTS_DIR` | `config/prompts` | Prompt templates directory |
 | `OLLEN_RAG_DEFAULT_PROMPT_NAME` | `rag_answer` | Default prompt template |
-| `OLLEN_RAG_LOG_LEVEL` | `INFO` | `DEBUG` for per-chunk detail (keywords, skipped fragments, threshold cuts) |
+| `OLLEN_RAG_LOG_LEVEL` | `INFO` | `DEBUG` for per-chunk detail |
 
 ## Tests
 
 ```bash
-# Unit tests (integration tests are excluded by default via pytest.ini)
+# Unit tests (integration tests excluded by default via pytest.ini)
 .venv/bin/python -m pytest
 
-# Integration tests (require a running OpenSearch, e.g. docker compose up)
+# Integration tests (require a running OpenSearch)
 .venv/bin/python -m pytest -m integration
 ```
 
-## TODO
+## Roadmap
 
 - Add [Docling](https://github.com/docling-project/docling) as an additional parser option.
-- Broaden file-type support (`.txt`, `.pptx`, `.docx`, etc.) beyond what the current parser covers.
+- Broaden file-type support (`.txt`, `.pptx`, `.docx`, …).
 - Add Qdrant as a vector store backend.
