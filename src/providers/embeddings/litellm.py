@@ -40,10 +40,22 @@ class LiteLLMEmbedding(BaseEmbedding):
         """Identifier used by llamaindex serialization."""
         return "LiteLLMEmbedding"
 
-    def _embed(self, texts: list[str]) -> list[list[float]]:
-        """One batched litellm call; the vendor-neutral core every other method delegates to."""
+    def _is_asymmetric(self) -> bool:
+        """Cohere v3 embeddings are asymmetric: query and document must be embedded with different
+        input_type values ('search_query' vs 'search_document') or nearest-neighbour search
+        degrades badly. LiteLLM forwards a caller-supplied input_type, and otherwise defaults to
+        'search_document' for both sides -- which silently breaks query retrieval. Only Cohere
+        needs this; every other vendor is left untouched."""
+        return self.model_name.lower().startswith("cohere/")
+
+    def _embed(self, texts: list[str], input_type: str | None = None) -> list[list[float]]:
+        """One batched litellm call; the vendor-neutral core every other method delegates to.
+        *input_type* is passed through only for vendors that need it (see _is_asymmetric)."""
+        call_kwargs = dict(self._call_kwargs)
+        if input_type and self._is_asymmetric():
+            call_kwargs["input_type"] = input_type
         try:
-            response = embedding(input=texts, **self._call_kwargs)
+            response = embedding(input=texts, **call_kwargs)
         except Exception as exc:
             # The raised type depends on which vendor SDK handled the call, so an explicit
             # except-list would be long and incomplete; the vendor message survives in the cause.
@@ -52,15 +64,16 @@ class LiteLLMEmbedding(BaseEmbedding):
         return [[float(x) for x in item["embedding"]] for item in response.data]
 
     def _get_text_embedding(self, text: str) -> list[float]:
-        return self._embed([text])[0]
+        return self._embed([text], input_type="search_document")[0]
 
     def _get_text_embeddings(self, texts: list[str]) -> list[list[float]]:
         # Batch variant, used for indexing multiple chunks at once: one HTTP round trip.
-        return self._embed(texts)
+        return self._embed(texts, input_type="search_document")
 
     def _get_query_embedding(self, query: str) -> list[float]:
-        # LiteLLM exposes no query-side prompt prefix, so a query embeds like any other text.
-        return self._embed([query])[0]
+        # Queries embed on the query side of the asymmetric encoder (Cohere v3); other vendors
+        # ignore input_type, so a query still embeds like any other text there.
+        return self._embed([query], input_type="search_query")[0]
 
     async def _aget_query_embedding(self, query: str) -> list[float]:
         # litellm has an async API, but the rest of this project is sync; delegate.
