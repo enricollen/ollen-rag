@@ -173,6 +173,16 @@ def test_list_indices_keeps_owned_hides_system_and_foreign():
     listed = [ix["index"] for ix in _backend(handler).list_indices()]
     assert listed == ["sentence", "custom_name"]
 
+def test_get_index_vectors_excludes_bookkeeping_and_caps_size():
+    def handler(request):
+        assert request.url.path == "/ollen_rag_sentence/_search"
+        assert request.url.params["size"] == "2"
+        return httpx.Response(200, json={"hits": {"hits": [
+            {"_id": "n1", "_source": {"content": "ciao", "embedding": [0.1, 0.2, 0.3], "metadata": {"bucket": "soc"}}},
+        ]}})
+    result = _backend(handler).get_index_vectors("ollen_rag_sentence", limit=2)
+    assert result == [{"id": "n1", "embedding": [0.1, 0.2, 0.3], "text": "ciao", "metadata": {"bucket": "soc"}}]
+
 def test_get_index_documents_excludes_embedding_and_paginates():
     def handler(request):
         assert request.url.path == "/ollen_rag_sentence/_search"

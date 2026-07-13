@@ -16,6 +16,7 @@ from src.rag.generation import generate
 from src.rag.ingestion import JOBS, create_job, run_ingestion_job
 from src.factories.reranker import RerankerFactory, load_reranker_model_choices
 from src.rag.retrieval import retrieve, retrieve_debug
+from src.rag.visualize import project_2d
 from src.settings import Settings, get_settings
 
 router = APIRouter()
@@ -322,6 +323,33 @@ def index_documents(index_name: str, offset: int = Query(default=0, ge=0), limit
                     bucket: str | None = Query(default=None)) -> dict:
     """Paginate raw stored documents (content + metadata) for browsing an index, optionally scoped to a bucket."""
     return create_backend().get_index_documents(index_name, offset=offset, limit=limit, bucket=bucket)
+
+@router.get("/api/v1/indices/{index_name}/vectors")
+def index_vectors(index_name: str, limit: int = Query(default=2000, ge=2, le=10000)) -> dict:
+    """2D PCA projection of an index's chunk embeddings for the Visualizer sub-tab, colored
+    by bucket. Each chunk's text is truncated to 200 chars; `capped` flags whether the
+    index has more chunks than `limit` (only the backend's first `limit` are projected)."""
+    backend = create_backend()
+    total = next((int(ix.get("docs.count") or 0) for ix in backend.list_indices() if ix.get("index") == index_name), 0)
+    vectors = backend.get_index_vectors(index_name, limit=limit)
+    if len(vectors) < 2:
+        return {"index": index_name, "total": total, "returned": len(vectors), "capped": total > limit, "buckets": [], "points": []}
+    coords = project_2d([v["embedding"] for v in vectors])
+    buckets: set[str] = set()
+    points = []
+    for v, (x, y) in zip(vectors, coords):
+        bucket = v["metadata"].get("bucket")
+        if bucket:
+            buckets.add(bucket)
+        text = v["text"] or ""
+        points.append({
+            "id": v["id"], "x": x, "y": y, "bucket": bucket,
+            "file_name": v["metadata"].get("file_name"), "text": text[:200], "length": len(text),
+        })
+    return {
+        "index": index_name, "total": total, "returned": len(vectors),
+        "capped": total > limit, "buckets": sorted(buckets), "points": points,
+    }
 
 @router.get("/api/v1/indices/{index_name}/embedding")
 def index_embedding(index_name: str) -> dict:
