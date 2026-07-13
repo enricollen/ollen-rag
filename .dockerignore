@@ -7,3 +7,9 @@ __pycache__
 .pytest_cache
 docs
 tests
+# Developer-only symlink to an external models dir; broken outside one machine and would copy
+# as a dangling link. The image bakes the default local models itself (see Dockerfile).
+models
+# Local on-disk stores / caches must never be baked into the image.
+chroma_db
+.cache
