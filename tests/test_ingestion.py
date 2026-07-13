@@ -97,7 +97,7 @@ def test_parse_file_empty_raises(monkeypatch):
 
 def test_ingest_document(mocked_stack, sample_file):
     result = ingestion.ingest_document(sample_file, strategy="sentence", extra_metadata={"team": "soc"})
-    assert result["index"] == "ollen_rag_sentence"
+    assert result["index"] == "sentence"
     assert result["strategy"] == "sentence"
     assert result["num_documents"] == 1
     assert result["num_nodes"] >= 1
@@ -182,7 +182,7 @@ def test_ingest_document_skips_duplicate(mocked_stack, sample_file):
     assert result["num_nodes"] == 0
     assert result["num_documents"] == 0
     # Dedup check must be bucket-scoped against the target index
-    assert mocked_stack.dup_args["index_name"] == "ollen_rag_sentence"
+    assert mocked_stack.dup_args["index_name"] == "sentence"
     assert mocked_stack.dup_args["bucket"] == "soc"
     assert mocked_stack.dup_args["file_hash"] == ingestion.compute_file_hash(sample_file)
 
@@ -190,7 +190,7 @@ def test_ingest_document_skips_duplicate(mocked_stack, sample_file):
 def test_ingest_document_records_embedding_meta(mocked_stack, sample_file):
     ingestion.ingest_document(sample_file, strategy="sentence")
     call = mocked_stack.set_meta_calls[0]
-    assert call["index_name"] == "ollen_rag_sentence"
+    assert call["index_name"] == "sentence"
     assert call["embedding_provider"] == "watsonx"  # Settings() default
     assert call["embedding_model"] == ingestion.get_settings().watsonx_embedding_model_id
     # Chunking config recorded with only the sentence-strategy knobs (values from settings)
@@ -260,7 +260,7 @@ def test_ingest_document_allows_matching_config_on_existing_index(mocked_stack, 
         "chunking": {"strategy": "sentence", "chunk_size": s.chunk_size, "chunk_overlap": s.chunk_overlap},
     }
     result = ingestion.ingest_document(sample_file, strategy="sentence")
-    assert result["index"] == "ollen_rag_sentence"
+    assert result["index"] == "sentence"
 
 
 def test_ingest_document_duplicate_skip_does_not_record_meta(mocked_stack, sample_file):

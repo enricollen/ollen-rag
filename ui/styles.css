@@ -349,9 +349,10 @@ code.inline { background: var(--bg-raised); padding: .1rem .35rem; border-radius
 .kb-del:hover { background: var(--bad); color: #fff; }
 
 /* Active-config banner: sticky read-out of the live wiring, shown above every page */
-.active-banner { display: flex; flex-wrap: wrap; gap: .4rem .5rem; align-items: center; background: var(--bg-raised); border: 1px solid var(--card-border); border-radius: 9px; padding: .5rem .7rem; margin-bottom: 1.2rem; }
+.active-banner { background: var(--bg-raised); border: 1px solid var(--card-border); border-radius: 9px; padding: .5rem .7rem; margin-bottom: 1.2rem; }
+.ab-items { display: flex; flex-wrap: wrap; gap: .4rem .5rem; align-items: center; }
 /* Banner title: sits before the config chips, marks what the row is. */
-.ab-title { font-size: .74rem; font-weight: 700; letter-spacing: .3px; color: var(--text); margin-right: .3rem; }
+.ab-title { font-size: .8rem; font-weight: 700; letter-spacing: .3px; color: var(--text); margin-bottom: .5rem; }
 .ab-item { display: inline-flex; align-items: center; gap: .35rem; font-size: .72rem; padding: .12rem .5rem; border-radius: 999px; background: var(--card); border: 1px solid var(--card-border); }
 .ab-ico { font-size: .82rem; line-height: 1; }
 .ab-lbl { color: var(--text-faint); text-transform: uppercase; letter-spacing: .3px; font-size: .64rem; font-weight: 600; }
