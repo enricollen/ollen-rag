@@ -6,8 +6,10 @@ import { render as renderRetrieval } from "./pages/retrieval.js";
 import { render as renderQuery } from "./pages/query.js";
 import { render as renderIndices } from "./pages/indices.js";
 import { render as renderEval } from "./pages/eval.js";
+import { render as renderOnboarding } from "./pages/onboarding.js";
 
 const ROUTES = {
+  welcome: renderOnboarding,
   settings: renderSettings,
   ingestion: renderIngestion,
   retrieval: renderRetrieval,
@@ -16,12 +18,23 @@ const ROUTES = {
   eval: renderEval,
 };
 
+// First-run gate: an unconfigured install is forced to the wizard until it has a working provider.
+async function ensureConfigured() {
+  if (location.hash === "#/welcome") return true;  // already there
+  try {
+    const st = await api("/api/v1/onboarding/status");
+    if (!st.configured) { location.hash = "#/welcome"; return false; }
+  } catch { /* status unreachable — let normal render show its own error */ }
+  return true;
+}
+
 function currentRoute() {
   const hash = location.hash.replace(/^#\/?/, "");
   return ROUTES[hash] ? hash : "ingestion";
 }
 
 async function navigate() {
+  if (!(await ensureConfigured())) return;  // redirected to wizard
   const route = currentRoute();
   document.querySelectorAll("#nav a").forEach(a => {
     a.classList.toggle("active", a.dataset.route === route);
