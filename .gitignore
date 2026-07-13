@@ -6,5 +6,5 @@ __pycache__/
 .pytest_cache/
 chroma_db/
 models
-docs
+docs/superpowers
 config/eval/nami_docs_full.yaml
