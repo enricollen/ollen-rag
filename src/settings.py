@@ -51,7 +51,6 @@ class Settings(BaseSettings):
     opensearch_user: str = ""
     opensearch_password: str = ""
     opensearch_verify_certs: bool = True
-    opensearch_index_prefix: str = "ollen_rag"
     opensearch_hybrid_pipeline: str = "ollen-rag-hybrid"
     # vector store backend selection (opensearch | chroma | qdrant …)
     vector_store: str = "opensearch"

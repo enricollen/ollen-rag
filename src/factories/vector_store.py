@@ -131,8 +131,8 @@ def pick_supported_mode(backend: VectorStoreBackend, requested: QueryMode) -> Qu
     raise VectorStoreError("backend declares no supported query modes")
 
 def build_index_name(strategy: str | None, index_name: str | None, settings: Settings | None = None) -> str:
-    """Explicit index name wins; otherwise '{prefix}_{strategy}' (default strategy if omitted)."""
+    """Explicit index name wins; otherwise the chunking strategy name (default strategy if omitted)."""
     settings = settings or get_settings()
     if index_name:
         return index_name
-    return f"{settings.opensearch_index_prefix}_{strategy or settings.default_chunking_strategy}"
+    return strategy or settings.default_chunking_strategy

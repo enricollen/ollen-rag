@@ -228,7 +228,6 @@ def config() -> dict:
         "embedding_model_choices": load_embedding_model_choices(),
         "embedding_default_models": EmbeddingFactory.default_models(s),
         "opensearch_url": s.opensearch_url,
-        "opensearch_index_prefix": s.opensearch_index_prefix,
         "opensearch_hybrid_pipeline": s.opensearch_hybrid_pipeline,
         "hybrid_sparse_weight": s.hybrid_sparse_weight,
         "hybrid_dense_weight": s.hybrid_dense_weight,

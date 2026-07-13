@@ -210,14 +210,15 @@ export function activeBannerHtml(active) {
     `<span class="ab-item"><span class="ab-ico">${ico}</span><span class="ab-lbl">${escapeHtml(label)}</span><span class="ab-val">${escapeHtml(val)}</span></span>`;
   return `
     <div class="active-banner" title="Active configuration — change it in Settings">
-      <span class="ab-title">⚙️ Active Configuration</span>
-      ${item("💬", "LLM", `${active.llm.provider} · ${active.llm.model}`)}
-      ${item("🧮", "Embedding", `${active.embedding.provider} · ${active.embedding.model}`)}
-      ${item("🎯", "Reranker", `${active.reranker.provider} · ${active.reranker.model}`)}
-      ${item("🗄️", "Vector store", active.vector_store)}
-      ${item("🏷️", "Index prefix", active.index_prefix)}
-      ${item("✂️", "Chunking", `${active.chunking.strategy} · ${active.chunking.chunk_size}/${active.chunking.chunk_overlap}`)}
-      ${item("📊", "top_k / top_n", `${active.retrieval_top_k} / ${active.rerank_top_n}`)}
+      <div class="ab-title">⚙️ Active Configuration</div>
+      <div class="ab-items">
+        ${item("💬", "LLM", `${active.llm.provider} · ${active.llm.model}`)}
+        ${item("🧮", "Embedding", `${active.embedding.provider} · ${active.embedding.model}`)}
+        ${item("🎯", "Reranker", `${active.reranker.provider} · ${active.reranker.model}`)}
+        ${item("🗄️", "Vector store", active.vector_store)}
+        ${item("✂️", "Chunking", `${active.chunking.strategy} · ${active.chunking.chunk_size}/${active.chunking.chunk_overlap}`)}
+        ${item("📊", "top_k / top_n", `${active.retrieval_top_k} / ${active.rerank_top_n}`)}
+      </div>
     </div>`;
 }
 
