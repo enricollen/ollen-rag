@@ -1,6 +1,7 @@
-# Citation-style RAG answer prompt used by CitationQueryEngine.
+# Citation-style RAG answer prompt used by CitationQueryEngine (Italian variant).
+# Select it per request with prompt_name=rag_answer_it.
 # Sources arrive pre-numbered ("Source 1:", "Source 2:", ...) in {context_str}.
-name: rag_answer
+name: rag_answer_it
 description: Risposta RAG con citazioni inline [n] ancorate alle fonti recuperate
 template: |
   Sei un assistente esperto. Rispondi alla domanda basandoti ESCLUSIVAMENTE sulle fonti fornite.
