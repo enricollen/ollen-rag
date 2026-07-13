@@ -132,5 +132,9 @@ def create_litellm_ollama_embedding(settings: Settings) -> BaseEmbedding:
     Uses its own model tag: OLLEN_RAG_OLLAMA_MODEL is a chat model and cannot embed.
     """
     model = settings.ollama_embedding_model
+    # Pull the embedding model on first use if the local Ollama doesn't have it yet (the bundled
+    # Ollama only pre-pulls the chat model), so selecting it never fails with 'model not found'.
+    from src.providers.ollama import ensure_model
+    ensure_model(settings.ollama_api_base, model)
     call_kwargs = {"model": f"ollama/{model}", "api_base": settings.ollama_api_base}
     return LiteLLMEmbedding(model_name=model, call_kwargs=call_kwargs)
