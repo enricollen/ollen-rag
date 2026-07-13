@@ -210,13 +210,27 @@ class OpenSearchBackend(VectorStoreBackend):
 
     # --- introspection / admin ---
     def list_indices(self) -> list[dict]:
-        """Return every index with document counts via the _cat API. No name filtering — the
-        console shows all indices regardless of naming; only OpenSearch system indices (names
-        starting with '.', e.g. '.opensearch-*'/'.kibana') are hidden."""
+        """Return app-owned indices with document counts. Starts from _cat/indices, drops OpenSearch
+        system indices (names starting with '.'), then keeps only indices carrying our build
+        signature in the mapping _meta (embedding_provider). This filters out foreign indices created
+        by plugins on the same cluster (e.g. Query Insights' 'top_queries-*'), which otherwise show
+        up in the console and 500 when browsed because they lack our document/bucket schema."""
         try:
             response = self._client.get("/_cat/indices", params={"format": "json"})
             response.raise_for_status()
-            return [ix for ix in response.json() if not str(ix.get("index", "")).startswith(".")]
+            candidates = [ix for ix in response.json() if not str(ix.get("index", "")).startswith(".")]
+            if not candidates:
+                return []
+            # One bulk _mapping call for all candidates; keep those whose _meta records our build config.
+            names = ",".join(str(ix["index"]) for ix in candidates)
+            mapping_resp = self._client.get(f"/{names}/_mapping")
+            mapping_resp.raise_for_status()
+            mappings = mapping_resp.json()
+            owned = {
+                name for name, m in mappings.items()
+                if (m.get("mappings", {}).get("_meta") or {}).get("embedding_provider")
+            }
+            return [ix for ix in candidates if str(ix.get("index", "")) in owned]
         except httpx.HTTPError as exc:
             raise VectorStoreError(f"Failed to list indices: {exc}") from exc
 
