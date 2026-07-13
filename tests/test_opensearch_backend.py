@@ -151,16 +151,27 @@ def test_get_index_dim_error_raises():
 
 # --- admin ---
 
-def test_list_indices_lists_all_and_hides_system():
+def test_list_indices_keeps_owned_hides_system_and_foreign():
+    # _cat lists everything; the follow-up _mapping call keeps only indices whose _meta carries our
+    # build signature. System (dot) indices are dropped before the mapping call; foreign plugin
+    # indices (no embedding_provider in _meta) are dropped after it.
     def handler(request):
-        assert request.url.path == "/_cat/indices"  # no prefix filter — list everything
-        return httpx.Response(200, json=[
-            {"index": "ollen_rag_sentence", "docs.count": "10"},
-            {"index": "chroma_custom_name", "docs.count": "3"},   # non-prefixed → still listed
-            {"index": ".opensearch-observability", "docs.count": "1"},  # system → hidden
-        ])
+        if request.url.path == "/_cat/indices":
+            return httpx.Response(200, json=[
+                {"index": "sentence", "docs.count": "10"},
+                {"index": "custom_name", "docs.count": "3"},
+                {"index": "top_queries-2026.07.13-1", "docs.count": "5"},  # foreign plugin index
+                {"index": ".opensearch-observability", "docs.count": "1"},  # system → hidden pre-mapping
+            ])
+        # Bulk mapping lookup for the non-system candidates.
+        assert request.url.path == "/sentence,custom_name,top_queries-2026.07.13-1/_mapping"
+        return httpx.Response(200, json={
+            "sentence": {"mappings": {"_meta": {"embedding_provider": "fastembed"}}},
+            "custom_name": {"mappings": {"_meta": {"embedding_provider": "watsonx"}}},
+            "top_queries-2026.07.13-1": {"mappings": {}},  # no _meta → foreign, dropped
+        })
     listed = [ix["index"] for ix in _backend(handler).list_indices()]
-    assert listed == ["ollen_rag_sentence", "chroma_custom_name"]
+    assert listed == ["sentence", "custom_name"]
 
 def test_get_index_documents_excludes_embedding_and_paginates():
     def handler(request):

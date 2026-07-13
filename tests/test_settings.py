@@ -6,7 +6,6 @@ def test_settings_defaults():
     s = Settings(_env_file=None)
     assert s.embedding_provider == "watsonx"
     assert s.llm_provider == "watsonx"
-    assert s.opensearch_index_prefix == "ollen_rag"
     assert s.default_chunking_strategy == "sentence"
     assert s.hybrid_dense_weight == 0.7
     # Multilingual by default: the English-only ms-marco cross-encoder measurably degrades

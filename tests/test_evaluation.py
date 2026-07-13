@@ -20,10 +20,10 @@ def test_parse_dataset_valid():
     assert len(ds.cases) == 2
     assert ds.cases[1].expected[0].contains == "Needle"
 
-def test_parse_dataset_requires_bucket():
-    bad = {"cases": [{"query": "q", "expected": [{"file_name": "a.pdf"}]}]}
-    with pytest.raises(ValueError, match="bucket"):
-        eval_mod.parse_dataset(bad)
+def test_parse_dataset_bucket_optional():
+    # Eval is bucket-agnostic: a case without a bucket parses fine, bucket defaults to None.
+    ds = eval_mod.parse_dataset({"cases": [{"query": "q", "expected": [{"file_name": "a.pdf"}]}]})
+    assert ds.cases[0].bucket is None
 
 def test_parse_dataset_requires_query_and_expected():
     with pytest.raises(ValueError, match="query"):
@@ -61,9 +61,8 @@ def test_evaluate_metrics(monkeypatch):
     assert overall["hit_rate"] == 1.0
     assert overall["recall"] == pytest.approx(0.75)
     assert overall["mrr"] == pytest.approx(0.75)
-    # Bucket invariant: every retrieve call carries the case's bucket as an == filter
-    assert captured_filters[0] == [{"key": "bucket", "value": "b1", "operator": "=="}]
-    assert captured_filters[1] == [{"key": "bucket", "value": "b2", "operator": "=="}]
+    # Bucket-agnostic: eval never applies a bucket (or any) filter — it searches the whole index.
+    assert captured_filters == [None, None]
 
 def test_evaluate_forwards_reranker_model(monkeypatch):
     """Comparing two rerankers on one golden dataset is the harness's reason to exist,

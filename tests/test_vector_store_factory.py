@@ -13,13 +13,13 @@ SETTINGS = Settings(_env_file=None)
 # --- index naming (pure helper, stays in the agnostic layer) ---
 
 def test_build_index_name_from_strategy():
-    assert vs_mod.build_index_name("semantic", None, SETTINGS) == "ollen_rag_semantic"
+    assert vs_mod.build_index_name("semantic", None, SETTINGS) == "semantic"
 
 def test_build_index_name_explicit_wins():
     assert vs_mod.build_index_name("semantic", "custom_idx", SETTINGS) == "custom_idx"
 
 def test_build_index_name_default_strategy():
-    assert vs_mod.build_index_name(None, None, SETTINGS) == "ollen_rag_sentence"
+    assert vs_mod.build_index_name(None, None, SETTINGS) == SETTINGS.default_chunking_strategy
 
 # --- registry / selection / capability ---
 

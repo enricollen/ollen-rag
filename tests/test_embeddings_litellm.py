@@ -79,6 +79,29 @@ def test_provider_failure_becomes_embedding_error(monkeypatch):
     with pytest.raises(EmbeddingError, match="upstream 503"):
         create_embedding_model(s).get_text_embedding("hello")
 
+def test_cohere_query_embeds_with_search_query_input_type(recorder):
+    """Cohere v3 is asymmetric: a query must be embedded as 'search_query' or it lands in the
+    document subspace and retrieval returns irrelevant chunks."""
+    s = Settings(_env_file=None, embedding_provider="litellm",
+                 litellm_embedding_model="cohere/embed-multilingual-v3.0", litellm_api_key="co-x")
+    create_embedding_model(s).get_query_embedding("cos'è nami soc")
+    assert recorder.calls[0]["input_type"] == "search_query"
+
+def test_cohere_document_embeds_with_search_document_input_type(recorder):
+    s = Settings(_env_file=None, embedding_provider="litellm",
+                 litellm_embedding_model="cohere/embed-multilingual-v3.0", litellm_api_key="co-x")
+    create_embedding_model(s).get_text_embedding("un documento")
+    assert recorder.calls[0]["input_type"] == "search_document"
+
+def test_non_cohere_never_sends_input_type(recorder):
+    """input_type is a Cohere-only asymmetry; other vendors must be left untouched."""
+    s = Settings(_env_file=None, embedding_provider="litellm",
+                 litellm_embedding_model="openai/text-embedding-3-small", litellm_api_key="sk-x")
+    model = create_embedding_model(s)
+    model.get_query_embedding("q")
+    model.get_text_embedding("d")
+    assert all("input_type" not in call for call in recorder.calls)
+
 def test_recorded_model_id_stays_bare_for_watsonx(recorder):
     """An index built with litellm-watsonx must record the same model id as native watsonx,
     so the two providers are interchangeable against one index."""

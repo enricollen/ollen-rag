@@ -70,10 +70,6 @@ const SECTIONS = [
     fields: [T("fastembed_model_name"), T("fastembed_cache_dir")],
   },
   {
-    id: "vs_shared", title: "§6 · Vector store — shared",
-    fields: [T("opensearch_index_prefix")],
-  },
-  {
     id: "vs_chroma", title: "§6 · Vector store — Chroma",
     gate: s => s.vector_store === "chroma",
     fields: [T("chroma_path")],

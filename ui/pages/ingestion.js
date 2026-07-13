@@ -160,7 +160,6 @@ export async function render(view) {
   let embeddingChoices = { watsonx: [], fastembed: [], litellm: [], "litellm-watsonx": [], "litellm-ollama": [] };
   let defaultEmbeddingProvider = "watsonx";
   let defaultModelByProvider = {};
-  let indexPrefix = "";
   let vectorStore = "";
   let chunkDefaults = {};
   try {
@@ -172,7 +171,6 @@ export async function render(view) {
     // provider -> its configured model, served by EmbeddingFactory.default_models(); adding a
     // provider must not require editing this file.
     defaultModelByProvider = cfg.embedding_default_models || defaultModelByProvider;
-    indexPrefix = cfg.opensearch_index_prefix || "";
     chunkDefaults = {
       chunk_size: cfg.chunk_size, chunk_overlap: cfg.chunk_overlap,
       semantic_breakpoint_percentile: cfg.semantic_breakpoint_percentile,
@@ -219,8 +217,8 @@ export async function render(view) {
       <div class="card">
         <h2><span class="step-num">1</span> 📦 Index &amp; bucket</h2>
         <label class="field">
-          <span class="label-text">Index name <span class="hint">(new index; suggested from prefix + strategy, editable)</span></span>
-          <input type="text" id="create-index-name" placeholder="${escapeHtml(indexPrefix)}_sentence">
+          <span class="label-text">Index name <span class="hint">(new index; suggested from strategy, editable)</span></span>
+          <input type="text" id="create-index-name" placeholder="sentence">
         </label>
         <label class="field">
           <span class="label-text">Bucket / collection <span class="hint">(stored as metadata.bucket — filter on it later in Retrieval/Query)</span></span>
@@ -363,7 +361,7 @@ export async function render(view) {
   }
   function suggestIndexName() {
     // Keep the name in sync with the strategy until the user edits it by hand
-    if (!indexNameEdited && indexPrefix) createIndexName.value = `${indexPrefix}_${selectedStrategy}`;
+    if (!indexNameEdited) createIndexName.value = selectedStrategy;
   }
   picker.querySelectorAll(".strategy-card").forEach(c => {
     c.onclick = () => { selectedStrategy = c.dataset.strategy; refreshStrategySelection(); refreshChunkInputs(); suggestIndexName(); updateInfoPanel(); };
@@ -451,7 +449,7 @@ export async function render(view) {
     const submitBtn = document.getElementById("submit-ingest");
     submitBtn.disabled = false;
     if (mode === "create") {
-      const name = createIndexName.value.trim() || (indexPrefix ? `${indexPrefix}_${selectedStrategy}` : "(unnamed)");
+      const name = createIndexName.value.trim() || selectedStrategy || "(unnamed)";
       const exists = existingIndexNames.has(name);
       submitBtn.disabled = exists;
       submitBtn.title = exists ? `"${name}" already exists — switch to “Add to existing KB” or rename` : "";
@@ -553,7 +551,7 @@ export async function render(view) {
     // Resolve the request shape from the active mode
     let indexName, bucket, strategy, embProvider, embModel, chunkParams, enrich, metaHost;
     if (mode === "create") {
-      indexName = createIndexName.value.trim() || (indexPrefix ? `${indexPrefix}_${selectedStrategy}` : "");
+      indexName = createIndexName.value.trim() || selectedStrategy || "";
       if (!indexName) { toast("Enter an index name", "error"); return; }
       if (existingIndexNames.has(indexName)) { toast(`Index "${indexName}" already exists — use “Add to existing KB”`, "error"); return; }
       bucket = document.getElementById("create-bucket").value.trim();

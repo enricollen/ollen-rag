@@ -194,15 +194,15 @@ Example MCP client configuration:
 
 ## Chunking strategies
 
-By default each strategy stores its chunks in a dedicated index named `{OLLEN_RAG_OPENSEARCH_INDEX_PREFIX}_{strategy}` (default prefix `ollen_rag`), so the same corpus can be indexed and compared under multiple strategies. Passing an explicit `index_name` (ingest form / MCP param) overrides this — useful to name an index by embedding model or corpus rather than strategy. **One index = one build config**: an index's `_meta` records its embedding provider/model and chunking config, and ingestion rejects a document whose embedding or chunking differs from what the index was built with.
+By default each strategy stores its chunks in a dedicated index named after the strategy (e.g. `sentence`), so the same corpus can be indexed and compared under multiple strategies. Passing an explicit `index_name` (ingest form / MCP param) overrides this — useful to name an index by embedding model or corpus rather than strategy. **One index = one build config**: an index's `_meta` records its embedding provider/model and chunking config, and ingestion rejects a document whose embedding or chunking differs from what the index was built with.
 
-| Strategy | Splitter | Index (default prefix) | Notes |
-|----------|----------|------------------------|-------|
-| `sentence` | SentenceSplitter | `ollen_rag_sentence` | Default; sentence-aware, `chunk_size`/`chunk_overlap` |
-| `token` | TokenTextSplitter | `ollen_rag_token` | Fixed token windows, `chunk_size`/`chunk_overlap` |
-| `semantic` | SemanticSplitterNodeParser | `ollen_rag_semantic` | Embedding-based topic breakpoints (`semantic_breakpoint_percentile`) |
-| `window` | SentenceWindowNodeParser | `ollen_rag_window` | One sentence per chunk plus a ±`sentence_window_size` context window |
-| `llm` | LLM-driven topic splitter | `ollen_rag_llm` | LLM groups sentences into topics (`llm_chunk_max_size`/`llm_chunk_window_size`); slowest |
+| Strategy | Splitter | Index (default) | Notes |
+|----------|----------|-----------------|-------|
+| `sentence` | SentenceSplitter | `sentence` | Default; sentence-aware, `chunk_size`/`chunk_overlap` |
+| `token` | TokenTextSplitter | `token` | Fixed token windows, `chunk_size`/`chunk_overlap` |
+| `semantic` | SemanticSplitterNodeParser | `semantic` | Embedding-based topic breakpoints (`semantic_breakpoint_percentile`) |
+| `window` | SentenceWindowNodeParser | `window` | One sentence per chunk plus a ±`sentence_window_size` context window |
+| `llm` | LLM-driven topic splitter | `llm` | LLM groups sentences into topics (`llm_chunk_max_size`/`llm_chunk_window_size`); slowest |
 
 ## Configuration
 
@@ -242,7 +242,6 @@ All settings live in `src/settings.py` and are overridable via `OLLEN_RAG_*` env
 | `OLLEN_RAG_OPENSEARCH_USER` | (empty) | OpenSearch basic-auth user |
 | `OLLEN_RAG_OPENSEARCH_PASSWORD` | (empty) | OpenSearch basic-auth password |
 | `OLLEN_RAG_OPENSEARCH_VERIFY_CERTS` | `true` | Verify TLS certificates |
-| `OLLEN_RAG_OPENSEARCH_INDEX_PREFIX` | `ollen_rag` | Index name prefix |
 | `OLLEN_RAG_OPENSEARCH_HYBRID_PIPELINE` | `ollen-rag-hybrid` | Hybrid search pipeline name |
 | `OLLEN_RAG_HYBRID_SPARSE_WEIGHT` | `0.3` | BM25 weight in hybrid fusion |
 | `OLLEN_RAG_HYBRID_DENSE_WEIGHT` | `0.7` | Dense weight in hybrid fusion |

@@ -29,7 +29,6 @@ def component_summary(s: Settings) -> dict:
         "embedding": {"provider": s.embedding_provider, "model": embedding_model},
         "reranker": {"provider": s.reranker_provider, "model": reranker_model},
         "vector_store": s.vector_store,
-        "index_prefix": s.opensearch_index_prefix,
         "chunking": {
             "strategy": s.default_chunking_strategy,
             "chunk_size": s.chunk_size,

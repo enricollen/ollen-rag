@@ -18,10 +18,11 @@ class ExpectedChunk:
 
 @dataclass
 class EvalCase:
-    """One golden query with its mandatory bucket scope and expected sources."""
+    """One golden query with its expected sources. Eval is bucket-agnostic: `bucket` is an
+    optional reporting label for slicing metrics, never a retrieval filter."""
     query: str
-    bucket: str
     expected: list[ExpectedChunk]
+    bucket: str | None = None
     strategy: str | None = None
     index_name: str | None = None
 
@@ -33,15 +34,14 @@ class EvalDataset:
 
 def parse_dataset(data: dict) -> EvalDataset:
     """Validate raw dataset dict (from YAML or the API) and build an EvalDataset.
-    Raises ValueError naming the offending case; bucket is mandatory by service invariant."""
+    Raises ValueError naming the offending case. `bucket` is optional — eval is bucket-agnostic,
+    so a case's bucket (if given) only labels its metrics, it never scopes retrieval."""
     if not isinstance(data, dict) or not isinstance(data.get("cases"), list) or not data["cases"]:
         raise ValueError("Eval dataset must contain a non-empty 'cases' list")
     cases = []
     for i, raw in enumerate(data["cases"]):
         if not raw.get("query"):
             raise ValueError(f"case {i}: 'query' is required")
-        if not raw.get("bucket"):
-            raise ValueError(f"case {i}: 'bucket' is required (bucket separation is mandatory)")
         if not raw.get("expected"):
             raise ValueError(f"case {i}: non-empty 'expected' list is required")
         expected = []
@@ -51,7 +51,7 @@ def parse_dataset(data: dict) -> EvalDataset:
                 raise ValueError(f"case {i}: each expected entry needs 'file_name'")
             expected.append(ExpectedChunk(file_name=e["file_name"], contains=e.get("contains")))
         cases.append(EvalCase(
-            query=raw["query"], bucket=raw["bucket"], expected=expected,
+            query=raw["query"], bucket=raw.get("bucket"), expected=expected,
             strategy=raw.get("strategy"), index_name=raw.get("index_name"),
         ))
     return EvalDataset(cases=cases, description=data.get("description", ""))
@@ -112,7 +112,7 @@ class EvalReport:
 
     def to_dict(self) -> dict:
         """JSON-ready report: overall + per-bucket aggregates + per-case rows."""
-        buckets = sorted({r.bucket for r in self.results})
+        buckets = sorted({r.bucket for r in self.results if r.bucket})  # only labelled cases; agnostic runs have none
         return {
             "params": self.params,
             "overall": self._aggregate(self.results),
@@ -138,7 +138,7 @@ class EvalReport:
         lines = [f"{'bucket':<20} {'matched':>7} {'expected':>8} {'rank':>5}  query"]
         for c in d["cases"]:
             rank = str(c["first_rank"]) if c["first_rank"] else "-"
-            lines.append(f"{c['bucket']:<20} {c['matched']:>7} {c['expected']:>8} {rank:>5}  {c['query'][:60]}")
+            lines.append(f"{(c['bucket'] or '-'):<20} {c['matched']:>7} {c['expected']:>8} {rank:>5}  {c['query'][:60]}")
         lines.append("")
         lines.append(f"{'scope':<20} {'cases':>5} {'hit_rate':>8} {'recall':>7} {'mrr':>6}")
         for name, agg in list(d["per_bucket"].items()) + [("OVERALL", d["overall"])]:
@@ -172,7 +172,7 @@ def evaluate(
             index_name=index_name or case.index_name,
             top_k=top_k,
             rerank_top_n=rerank_top_n,
-            raw_filters=[{"key": "bucket", "value": case.bucket, "operator": "=="}],
+            raw_filters=None,  # bucket-agnostic: search the whole index; the user matches dataset↔index
             similarity_threshold=similarity_threshold,
             use_rerank=use_rerank,
             reranker_provider=reranker_provider,
