@@ -12,6 +12,12 @@ def test_settings_defaults():
     # ranking on a non-English corpus (MRR 0.958 vs 1.00 with no reranking at all).
     assert s.reranker_model == "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
 
+def test_fastembed_cache_dir_is_not_under_models_symlink():
+    """The models/ symlink is a one-machine artifact; the default cache must not depend on it."""
+    s = Settings(_env_file=None)
+    assert s.fastembed_cache_dir == "./.cache/fastembed"
+    assert "models/" not in s.fastembed_cache_dir
+
 def test_settings_env_override(monkeypatch):
     """OLLEN_RAG_ prefixed env vars must override defaults."""
     monkeypatch.setenv("OLLEN_RAG_EMBEDDING_PROVIDER", "fastembed")
