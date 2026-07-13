@@ -56,6 +56,18 @@ docker compose up
 
 Ports: service on `8000`, OpenSearch on `9200`, Dashboards on `5601`. The first image build is slow because of the LibreOffice layer.
 
+## Web console
+
+A single-page console is served at `http://localhost:8000/ui/`. It mirrors the REST API for humans: an **Active Configuration** banner (the effective providers, embedding model, chunking and top-k) sits atop every page, and the sidebar walks the RAG phases — **Settings** (editable mirror of `.env`), **Indices**, **Ingestion KB**, **Retrieval**, **Query (e2e)**, and **Eval**.
+
+| Settings — editable `.env` mirror | Indices — across all vector stores |
+| :---: | :---: |
+| <img src="docs/screenshots/settings.png" width="420" alt="Settings page"> | <img src="docs/screenshots/indices.png" width="420" alt="Indices page"> |
+| **Ingestion KB — build or extend an index** | **Retrieval — hybrid search + rerank, no LLM** |
+| <img src="docs/screenshots/ingestion.png" width="420" alt="Ingestion page"> | <img src="docs/screenshots/retrieval.png" width="420" alt="Retrieval page"> |
+| **Query (e2e) — cited RAG answer** | **Eval — golden-dataset retrieval metrics** |
+| <img src="docs/screenshots/query.png" width="420" alt="Query page"> | <img src="docs/screenshots/eval.png" width="420" alt="Eval page"> |
+
 ## REST API
 
 | Method | Path | Description |
