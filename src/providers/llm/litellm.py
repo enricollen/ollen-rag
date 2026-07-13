@@ -114,6 +114,34 @@ class LiteLLMWatsonxConnector(LiteLLMConnector):
             "project_id": self._settings.watsonx_project_id,
         }
 
+@LLMConnectorFactory.register("litellm-openai")
+class LiteLLMOpenAIConnector(LiteLLMConnector):
+    """OpenAI or any OpenAI-compatible API (vLLM, LocalAI, …) through LiteLLM.
+
+    Uses the dedicated OLLEN_RAG_OPENAI_* settings so OpenAI credentials stay in their own
+    namespace and do not mix with the catch-all "litellm" block. The bare model name is prefixed
+    with "openai/" unless the caller already included it, which is what LiteLLM needs to route
+    to an OpenAI-compatible backend. Setting OLLEN_RAG_OPENAI_API_BASE overrides the official
+    OpenAI endpoint, making this connector usable with any self-hosted OpenAI-compatible server.
+    """
+
+    def __init__(self, settings: Settings | None = None) -> None:
+        super().__init__(settings)
+        if not self._settings.openai_model:
+            raise ValueError("OLLEN_RAG_OPENAI_MODEL must be set when OLLEN_RAG_LLM_PROVIDER=litellm-openai")
+        raw = self._settings.openai_model
+        self.model_name = raw if raw.startswith("openai/") else f"openai/{raw}"
+        self.max_new_tokens = self._settings.openai_max_new_tokens
+        self.temperature = self._settings.openai_temperature
+
+    def _call_kwargs(self) -> dict[str, Any]:
+        kwargs: dict[str, Any] = {"model": self.model_name}
+        if self._settings.openai_api_key:
+            kwargs["api_key"] = self._settings.openai_api_key
+        if self._settings.openai_api_base:
+            kwargs["api_base"] = self._settings.openai_api_base
+        return kwargs
+
 @LLMConnectorFactory.register("litellm-ollama")
 class LiteLLMOllamaConnector(LiteLLMConnector):
     """Local Ollama through LiteLLM. Needs only an api_base -- no credentials at all.

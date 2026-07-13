@@ -23,3 +23,8 @@ litellm-ollama:
   - mxbai-embed-large
 # Free-form: any LiteLLM model string, e.g. openai/text-embedding-3-small
 litellm: []
+# OpenAI / OpenAI-compatible API. Bare names only; the "openai/" prefix is added at call time.
+litellm-openai:
+  - text-embedding-3-small
+  - text-embedding-3-large
+  - text-embedding-ada-002

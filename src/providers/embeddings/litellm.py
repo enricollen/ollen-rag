@@ -125,6 +125,27 @@ def create_litellm_watsonx_embedding(settings: Settings) -> BaseEmbedding:
     }
     return LiteLLMEmbedding(model_name=model, call_kwargs=call_kwargs)
 
+@EmbeddingFactory.register("litellm-openai", model_field="openai_embedding_model")
+def create_litellm_openai_embedding(settings: Settings) -> BaseEmbedding:
+    """OpenAI or any OpenAI-compatible embedding API through LiteLLM.
+
+    Uses the dedicated OLLEN_RAG_OPENAI_* settings. The bare model name is prefixed with
+    "openai/" unless already included. Setting OLLEN_RAG_OPENAI_API_BASE routes to any
+    OpenAI-compatible server (vLLM, LocalAI, …) instead of the official OpenAI endpoint.
+    """
+    if not settings.openai_embedding_model:
+        raise ValueError(
+            "OLLEN_RAG_OPENAI_EMBEDDING_MODEL must be set when OLLEN_RAG_EMBEDDING_PROVIDER=litellm-openai"
+        )
+    raw = settings.openai_embedding_model
+    model = raw if raw.startswith("openai/") else f"openai/{raw}"
+    call_kwargs = _optional(
+        {"model": model},
+        api_key=settings.openai_api_key,
+        api_base=settings.openai_api_base,
+    )
+    return LiteLLMEmbedding(model_name=raw, call_kwargs=call_kwargs)
+
 @EmbeddingFactory.register("litellm-ollama", model_field="ollama_embedding_model")
 def create_litellm_ollama_embedding(settings: Settings) -> BaseEmbedding:
     """Local Ollama embeddings through LiteLLM. Needs only an api_base -- no credentials at all.

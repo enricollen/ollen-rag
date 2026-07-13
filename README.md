@@ -23,8 +23,8 @@ Everything pluggable follows one decorator-registry pattern: a factory in `src/f
 
 | Capability | Factory | Providers |
 |------------|---------|-----------|
-| LLM | `LLMConnectorFactory` | `watsonx`, `litellm`, `litellm-watsonx`, `litellm-ollama` |
-| Embeddings | `EmbeddingFactory` | `watsonx`, `fastembed`, `litellm`, `litellm-watsonx`, `litellm-ollama` |
+| LLM | `LLMConnectorFactory` | `watsonx`, `litellm`, `litellm-watsonx`, `litellm-ollama`, `litellm-openai` |
+| Embeddings | `EmbeddingFactory` | `watsonx`, `fastembed`, `litellm`, `litellm-watsonx`, `litellm-ollama`, `litellm-openai` |
 | Reranker | `RerankerFactory` | `sentence-transformers`, `litellm`, `litellm-watsonx` |
 | Vector store | `VectorStoreFactory` | `opensearch`, `chroma` |
 
@@ -222,8 +222,8 @@ All settings live in `src/settings.py`, overridable via `OLLEN_RAG_*` environmen
 | `OLLEN_RAG_WATSONX_MAX_NEW_TOKENS` | `800` | Max generated tokens |
 | `OLLEN_RAG_WATSONX_TEMPERATURE` | `0.1` | LLM temperature |
 | `OLLEN_RAG_WATSONX_REPETITION_PENALTY` | `1.15` | Penalizes repeated tokens; >1.3 garbles output |
-| `OLLEN_RAG_EMBEDDING_PROVIDER` | `watsonx` | `watsonx`, `fastembed`, `litellm`, `litellm-watsonx`, `litellm-ollama` |
-| `OLLEN_RAG_LLM_PROVIDER` | `watsonx` | `watsonx`, `litellm`, `litellm-watsonx`, `litellm-ollama` |
+| `OLLEN_RAG_EMBEDDING_PROVIDER` | `watsonx` | `watsonx`, `fastembed`, `litellm`, `litellm-watsonx`, `litellm-ollama`, `litellm-openai` |
+| `OLLEN_RAG_LLM_PROVIDER` | `watsonx` | `watsonx`, `litellm`, `litellm-watsonx`, `litellm-ollama`, `litellm-openai` |
 | `OLLEN_RAG_RERANKER_PROVIDER` | `sentence-transformers` | `sentence-transformers`, `litellm`, `litellm-watsonx` (Ollama has no rerank endpoint) |
 | `OLLEN_RAG_LITELLM_MODEL` | (empty) | LiteLLM model string for the generic LLM provider, e.g. `openai/gpt-4o` |
 | `OLLEN_RAG_LITELLM_API_BASE` | (empty) | Endpoint override; shared fallback for the two below |
@@ -236,6 +236,12 @@ All settings live in `src/settings.py`, overridable via `OLLEN_RAG_*` environmen
 | `OLLEN_RAG_LITELLM_RERANK_MODEL` | (empty) | LiteLLM model string for the generic rerank provider, e.g. `cohere/rerank-v3.5` |
 | `OLLEN_RAG_LITELLM_RERANK_API_BASE` | (empty) | Rerank endpoint; falls back to `OLLEN_RAG_LITELLM_API_BASE` |
 | `OLLEN_RAG_LITELLM_RERANK_API_KEY` | (empty) | Rerank key; falls back to `OLLEN_RAG_LITELLM_API_KEY` |
+| `OLLEN_RAG_OPENAI_MODEL` | (empty) | Bare model name for `litellm-openai`; `openai/` prefix added by connector |
+| `OLLEN_RAG_OPENAI_API_KEY` | (empty) | API key for OpenAI or compatible server |
+| `OLLEN_RAG_OPENAI_API_BASE` | (empty) | Endpoint override; empty = official OpenAI endpoint |
+| `OLLEN_RAG_OPENAI_MAX_NEW_TOKENS` | `800` | Generation cap for `litellm-openai` |
+| `OLLEN_RAG_OPENAI_TEMPERATURE` | `0.1` | Sampling temperature for `litellm-openai` |
+| `OLLEN_RAG_OPENAI_EMBEDDING_MODEL` | (empty) | Bare embedding model name for `litellm-openai` |
 | `OLLEN_RAG_OLLAMA_API_BASE` | `http://localhost:11434` | Local Ollama endpoint |
 | `OLLEN_RAG_OLLAMA_MODEL` | `llama3.1` | Bare Ollama chat model tag (connector adds `ollama/`) |
 | `OLLEN_RAG_OLLAMA_EMBEDDING_MODEL` | `nomic-embed-text` | Bare Ollama embedding model tag |
