@@ -187,7 +187,7 @@ async function buildCreateTab(view) {
   const host = document.getElementById("idx-create");
 
   let defaultStrategy = "sentence";
-  let embeddingChoices = { watsonx: [], fastembed: [], litellm: [], "litellm-watsonx": [], "litellm-ollama": [] };
+  let embeddingChoices = { watsonx: [], fastembed: [], litellm: [], "litellm-watsonx": [], "litellm-ollama": [], "litellm-openai": [], "litellm-openrouter": [] };
   let defaultEmbeddingProvider = "watsonx";
   let defaultModelByProvider = {};
   let vectorStore = "";

@@ -12,9 +12,11 @@ const FIELD_WARN = {
   watsonx_embedding_model_id: "Changing the embedding model requires a NEW index (different vectors/dim). Re-ingest after saving.",
   fastembed_model_name: "Changing the embedding model requires a NEW index (different vectors/dim). Re-ingest after saving.",
   ollama_embedding_model: "Changing the embedding model requires a NEW index (different vectors/dim). Re-ingest after saving.",
+  openai_embedding_model: "Changing the embedding model requires a NEW index (different vectors/dim). Re-ingest after saving.",
+  openrouter_embedding_model: "Changing the embedding model requires a NEW index (different vectors/dim). Re-ingest after saving.",
 };
 // Fields whose change invalidates existing indices — a toast fires when the operator edits one.
-const REINDEX_KEYS = new Set(["embedding_provider", "litellm_embedding_model", "watsonx_embedding_model_id", "fastembed_model_name", "ollama_embedding_model"]);
+const REINDEX_KEYS = new Set(["embedding_provider", "litellm_embedding_model", "watsonx_embedding_model_id", "fastembed_model_name", "ollama_embedding_model", "openai_embedding_model", "openrouter_embedding_model"]);
 
 // The four provider switches. Changing any of them re-evaluates every block's ACTIVE gate live.
 const GATE_KEYS = ["llm_provider", "embedding_provider", "reranker_provider", "vector_store"];
@@ -31,8 +33,8 @@ const SECTIONS = [
     id: "control", title: "§1 · Control panel", control: true,
     note: "Provider selection — drives which blocks below are active.",
     fields: [
-      T("llm_provider", "select", { pick: ["watsonx", "litellm", "litellm-watsonx", "litellm-ollama"] }),
-      T("embedding_provider", "select", { pick: ["watsonx", "fastembed", "litellm", "litellm-watsonx", "litellm-ollama"] }),
+      T("llm_provider", "select", { pick: ["watsonx", "litellm", "litellm-watsonx", "litellm-ollama", "litellm-openai", "litellm-openrouter"] }),
+      T("embedding_provider", "select", { pick: ["watsonx", "fastembed", "litellm", "litellm-watsonx", "litellm-ollama", "litellm-openai", "litellm-openrouter"] }),
       T("reranker_provider", "select", { pick: ["sentence-transformers", "litellm", "litellm-watsonx"] }),
       T("vector_store", "select", { pick: ["opensearch", "chroma"] }),
     ],
@@ -65,17 +67,35 @@ const SECTIONS = [
     fields: [T("ollama_api_base"), T("ollama_model"), T("ollama_embedding_model")],
   },
   {
-    id: "fastembed", title: "§5 · fastembed backend",
+    id: "openai", title: "§5 · OpenAI backend",
+    gate: s => [s.llm_provider, s.embedding_provider].includes("litellm-openai"),
+    fields: [
+      T("openai_model"), T("openai_api_key", "password"), T("openai_api_base"),
+      T("openai_max_new_tokens", "number"), T("openai_temperature", "number"),
+      T("openai_embedding_model"),
+    ],
+  },
+  {
+    id: "openrouter", title: "§6 · OpenRouter backend",
+    gate: s => [s.llm_provider, s.embedding_provider].includes("litellm-openrouter"),
+    fields: [
+      T("openrouter_model"), T("openrouter_api_key", "password"), T("openrouter_api_base"),
+      T("openrouter_max_new_tokens", "number"), T("openrouter_temperature", "number"),
+      T("openrouter_embedding_model"),
+    ],
+  },
+  {
+    id: "fastembed", title: "§7 · fastembed backend",
     gate: s => s.embedding_provider === "fastembed",
     fields: [T("fastembed_model_name"), T("fastembed_cache_dir")],
   },
   {
-    id: "vs_chroma", title: "§6 · Vector store — Chroma",
+    id: "vs_chroma", title: "§8 · Vector store — Chroma",
     gate: s => s.vector_store === "chroma",
     fields: [T("chroma_path")],
   },
   {
-    id: "vs_os", title: "§6 · Vector store — OpenSearch",
+    id: "vs_os", title: "§8 · Vector store — OpenSearch",
     gate: s => s.vector_store === "opensearch",
     note: "OpenSearch must be running (port 9201) when selected.",
     fields: [
@@ -85,7 +105,7 @@ const SECTIONS = [
     ],
   },
   {
-    id: "chunking", title: "§7 · Chunking",
+    id: "chunking", title: "§9 · Chunking",
     fields: [
       T("default_chunking_strategy", "select", { pick: ["sentence", "token", "semantic", "window"] }),
       T("chunk_size", "number"), T("chunk_overlap", "number"), T("semantic_breakpoint_percentile", "number"),
@@ -93,7 +113,7 @@ const SECTIONS = [
     ],
   },
   {
-    id: "retrieval", title: "§8 · Retrieval & rerank",
+    id: "retrieval", title: "§10 · Retrieval & rerank",
     fields: [
       T("retrieval_top_k", "number"), T("rerank_top_n", "number"), T("similarity_threshold", "number"),
       // Only used when reranker_provider = sentence-transformers; flagged inline rather than hidden.
@@ -101,13 +121,13 @@ const SECTIONS = [
     ],
   },
   {
-    id: "generation", title: "§9 · Generation",
+    id: "generation", title: "§11 · Generation",
     fields: [T("citation_chunk_size", "number"), T("prompts_dir"), T("default_prompt_name")],
   },
-  { id: "ingestion", title: "§10 · Ingestion", fields: [T("enrich_keywords", "bool")] },
-  { id: "eval", title: "§11 · Eval harness", fields: [T("eval_dir")] },
+  { id: "ingestion", title: "§12 · Ingestion", fields: [T("enrich_keywords", "bool")] },
+  { id: "eval", title: "§13 · Eval harness", fields: [T("eval_dir")] },
   {
-    id: "logging", title: "§12 · Logging",
+    id: "logging", title: "§14 · Logging",
     fields: [T("log_level", "select", { pick: ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] })],
   },
 ];

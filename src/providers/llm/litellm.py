@@ -142,6 +142,33 @@ class LiteLLMOpenAIConnector(LiteLLMConnector):
             kwargs["api_base"] = self._settings.openai_api_base
         return kwargs
 
+@LLMConnectorFactory.register("litellm-openrouter")
+class LiteLLMOpenRouterConnector(LiteLLMConnector):
+    """OpenRouter (one API key, hundreds of vendors' models) through LiteLLM.
+
+    Uses the dedicated OLLEN_RAG_OPENROUTER_* settings so credentials stay in their own
+    namespace. The model string is "<vendor>/<model>" (e.g. "google/gemini-2.5-flash"); the
+    "openrouter/" prefix is added unless the caller already included it. Setting
+    OLLEN_RAG_OPENROUTER_API_BASE overrides OpenRouter's default endpoint.
+    """
+
+    def __init__(self, settings: Settings | None = None) -> None:
+        super().__init__(settings)
+        if not self._settings.openrouter_model:
+            raise ValueError("OLLEN_RAG_OPENROUTER_MODEL must be set when OLLEN_RAG_LLM_PROVIDER=litellm-openrouter")
+        raw = self._settings.openrouter_model
+        self.model_name = raw if raw.startswith("openrouter/") else f"openrouter/{raw}"
+        self.max_new_tokens = self._settings.openrouter_max_new_tokens
+        self.temperature = self._settings.openrouter_temperature
+
+    def _call_kwargs(self) -> dict[str, Any]:
+        kwargs: dict[str, Any] = {"model": self.model_name}
+        if self._settings.openrouter_api_key:
+            kwargs["api_key"] = self._settings.openrouter_api_key
+        if self._settings.openrouter_api_base:
+            kwargs["api_base"] = self._settings.openrouter_api_base
+        return kwargs
+
 @LLMConnectorFactory.register("litellm-ollama")
 class LiteLLMOllamaConnector(LiteLLMConnector):
     """Local Ollama through LiteLLM. Needs only an api_base -- no credentials at all.

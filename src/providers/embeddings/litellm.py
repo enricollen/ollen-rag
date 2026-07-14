@@ -146,6 +146,27 @@ def create_litellm_openai_embedding(settings: Settings) -> BaseEmbedding:
     )
     return LiteLLMEmbedding(model_name=raw, call_kwargs=call_kwargs)
 
+@EmbeddingFactory.register("litellm-openrouter", model_field="openrouter_embedding_model")
+def create_litellm_openrouter_embedding(settings: Settings) -> BaseEmbedding:
+    """OpenRouter embeddings through LiteLLM (vendor selection is scarce for embeddings on
+    OpenRouter, but the routing shape is identical to the other LiteLLM vendors).
+
+    Uses the dedicated OLLEN_RAG_OPENROUTER_* settings. The bare "<vendor>/<model>" tag is
+    prefixed with "openrouter/" unless already included.
+    """
+    if not settings.openrouter_embedding_model:
+        raise ValueError(
+            "OLLEN_RAG_OPENROUTER_EMBEDDING_MODEL must be set when OLLEN_RAG_EMBEDDING_PROVIDER=litellm-openrouter"
+        )
+    raw = settings.openrouter_embedding_model
+    model = raw if raw.startswith("openrouter/") else f"openrouter/{raw}"
+    call_kwargs = _optional(
+        {"model": model},
+        api_key=settings.openrouter_api_key,
+        api_base=settings.openrouter_api_base,
+    )
+    return LiteLLMEmbedding(model_name=raw, call_kwargs=call_kwargs)
+
 @EmbeddingFactory.register("litellm-ollama", model_field="ollama_embedding_model")
 def create_litellm_ollama_embedding(settings: Settings) -> BaseEmbedding:
     """Local Ollama embeddings through LiteLLM. Needs only an api_base -- no credentials at all.

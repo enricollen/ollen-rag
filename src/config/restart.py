@@ -5,9 +5,17 @@ import os
 from pathlib import Path
 
 def _reloader_active() -> bool:
-    """True when uvicorn's reloader is managing this process. The reloader launches the app in a
-    child and sets this marker in the child's environment; its presence is the reliable signal."""
-    return os.environ.get("UVICORN_RELOAD_PROCESS") == "true" or "--reload" in os.environ.get("_", "")
+    """True when uvicorn's reloader is managing this process. Uvicorn sets no env marker for this
+    -- the worker is a bare multiprocessing.spawn child, so os.environ["_"] (the shell's last
+    command) never carries "--reload" and there's nothing to read off this process directly. The
+    one reliable signal on Linux: the worker's parent is the uvicorn supervisor process, and *its*
+    cmdline still has the original "--reload" flag."""
+    if os.environ.get("UVICORN_RELOAD_PROCESS") == "true" or "--reload" in os.environ.get("_", ""):
+        return True
+    try:
+        return "--reload" in Path(f"/proc/{os.getppid()}/cmdline").read_text()
+    except OSError:
+        return False
 
 def resolve_restart_mode(configured: str) -> str:
     """Pick the apply strategy. An explicit OLLEN_RAG_RESTART_MODE wins; otherwise infer:

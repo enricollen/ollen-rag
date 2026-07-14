@@ -28,3 +28,6 @@ litellm-openai:
   - text-embedding-3-small
   - text-embedding-3-large
   - text-embedding-ada-002
+# OpenRouter. Bare "<vendor>/<model>" tags; the "openrouter/" prefix is added at call time.
+# OpenRouter's embedding-model catalog is scarce and shifts often, so this stays free-form.
+litellm-openrouter: []
