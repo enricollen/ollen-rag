@@ -1,10 +1,11 @@
 """Cited answer generation: hybrid retrieval + rerank + CitationQueryEngine + watsonx LLM."""
+from time import perf_counter
 from llama_index.core.query_engine import CitationQueryEngine
 from src.exceptions import GenerationError, OllenRagError
 from src.factories.llm import create_llm
 from src.factories.reranker import create_reranker
 from src.factories.vector_store import build_index_name
-from src.logger import OllenLogger
+from src.logger import OllenLogger, preview
 from src.prompts import load_prompt
 from src.rag.retrieval import build_backend_retriever, get_threshold_postprocessor
 from src.settings import get_settings
@@ -25,8 +26,11 @@ def generate(
     reranker_model: str | None = None,
 ) -> dict:
     """Answer a question with inline [n] citations; sources[] ids match the citation numbers."""
+    started = perf_counter()
     settings = get_settings()
     target_index = build_index_name(strategy, index_name, settings)
+    resolved_prompt = prompt_name or settings.default_prompt_name
+    log.debug("generate start: query=%r index=%s prompt=%s llm=%s", preview(query), target_index, resolved_prompt, settings.llm_provider)
     # Backend-driven retriever (works for any vector store); filters travel as raw dicts.
     retriever = build_backend_retriever(target_index, top_k or settings.retrieval_top_k, raw_filters, filter_condition)
     # CitationQueryEngine renumbers retrieved chunks as "Source n:" and prompts the LLM to cite them.
@@ -35,7 +39,7 @@ def generate(
         None,
         retriever=retriever,
         llm=create_llm(settings),
-        citation_qa_template=load_prompt(prompt_name or settings.default_prompt_name, settings),
+        citation_qa_template=load_prompt(resolved_prompt, settings),
         # Threshold (fused-score floor) runs before the reranker; None when disabled
         node_postprocessors=[
             p for p in (get_threshold_postprocessor(similarity_threshold), create_reranker(rerank_top_n, reranker_provider, reranker_model)) if p is not None
@@ -43,6 +47,7 @@ def generate(
         citation_chunk_size=settings.citation_chunk_size,
     )
     try:
+        log.debug("querying LLM (retrieve + rerank + generate)")
         response = engine.query(query)
     except OllenRagError:
         raise
@@ -61,5 +66,7 @@ def generate(
         }
         for position, node_with_score in enumerate(response.source_nodes, start=1)
     ]
-    log.info("generate: index=%s prompt=%s -> %d source(s)", target_index, prompt_name or settings.default_prompt_name, len(sources))
-    return {"answer": str(response), "sources": sources}
+    answer = str(response)
+    log.debug("answer generated: %d char(s), %d citation source(s)", len(answer), len(sources))
+    log.info("generate: index=%s prompt=%s -> %d source(s) (%.2fs)", target_index, resolved_prompt, len(sources), perf_counter() - started)
+    return {"answer": answer, "sources": sources}

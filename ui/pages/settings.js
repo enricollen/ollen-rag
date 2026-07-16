@@ -267,14 +267,24 @@ export async function render(view) {
     if (Object.keys(changes).length === 0) { status.textContent = "No changes."; return; }
     document.getElementById("save-settings").disabled = true;
     status.textContent = "Saving…";
+    let res;
     try {
-      await api("/api/v1/settings", {
+      res = await api("/api/v1/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(changes),
       });
     } catch (e) {
       status.textContent = `Save failed: ${errorMessage(e)}`;
+      document.getElementById("save-settings").disabled = false;
+      return;
+    }
+    if (!res.restarting) {
+      // "manual" mode: .env is written, but nothing supervises this process to reload it
+      // (no --reload, no container restart policy) -- apply_restart() is a deliberate no-op
+      // rather than kill a process nothing will bring back. Reloading now would just re-show
+      // the same stale in-memory Settings, so don't pretend a restart happened.
+      status.textContent = "Saved to .env — restart the service manually to apply (restart_mode=manual, no supervisor detected).";
       document.getElementById("save-settings").disabled = false;
       return;
     }
