@@ -8,3 +8,4 @@ chroma_db/
 models
 docs/superpowers
 config/eval/nami_docs_full.yaml
+config/eval/runs/

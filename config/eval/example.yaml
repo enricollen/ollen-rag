@@ -6,7 +6,17 @@ description: >
   contain the expected documents. A case's `bucket` is optional and only labels its
   metrics (per-label breakdown); it never scopes retrieval.
 
+  An expected entry may carry an optional `relevance` grade (positive int, default 1):
+  higher-graded targets contribute more to nDCG when ranked well. Binary metrics
+  (hit-rate/recall/precision/MAP) treat any graded target as simply relevant, so omitting
+  `relevance` reproduces the pre-grading behaviour exactly.
+
   Run: python -m src.rag.evaluation --dataset config/eval/example.yaml --top-k 5
+       # per-leg attribution (bm25/dense/hybrid/reranked + rerank lift):
+       python -m src.rag.evaluation --dataset config/eval/example.yaml --per-leg
+       # save a run, then compare two saved runs (paired delta + significance):
+       python -m src.rag.evaluation --dataset config/eval/example.yaml --save --label baseline
+       python -m src.rag.evaluation --compare <run_a_id> <run_b_id>
 
 cases:
   - query: "What is this project for?"
@@ -14,6 +24,7 @@ cases:
     expected:
       - file_name: example_document.pdf
         contains: "replace this with a verbatim substring from your indexed document"
+        relevance: 3  # optional graded gain for nDCG; omit for the default of 1
 
   - query: "How is data organized?"
     bucket: example_bucket

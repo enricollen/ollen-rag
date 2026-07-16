@@ -1,6 +1,11 @@
 // Shared helpers: same-origin fetch wrapper, toasts, localStorage-backed
 // session state (job history, seen buckets), and small DOM/format utilities.
 
+// Validated dark-mode categorical palette (dataviz skill's steps; this UI is dark-only). Fixed
+// order, never cycled — shared by every chart so identity maps to the same hue across pages.
+export const CHART_PALETTE = ["#3987e5", "#199e70", "#c98500", "#008300", "#9085e9", "#e66767", "#d55181", "#d95926"];
+export const CHART_GRID = "#2c2c2a"; // dataviz dark-mode gridline hairline
+
 // Fetches a JSON (or form) API endpoint and throws with the parsed error
 // body attached, so callers can render {error_code, detail} from the backend.
 export async function api(path, options = {}) {
@@ -143,7 +148,7 @@ export async function fetchIndexInfo(indexName) {
 }
 
 // One-line summary of a chunking config dict {strategy, ...knobs}.
-function chunkingSummary(chunking) {
+export function chunkingSummary(chunking) {
   if (!chunking) return "unrecorded (legacy index)";
   const knobs = Object.entries(chunking).filter(([k]) => k !== "strategy").map(([k, v]) => `${k}=${v}`);
   return [chunking.strategy, ...knobs].join(" · ");
