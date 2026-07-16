@@ -1,5 +1,6 @@
 """Service entrypoint: FastAPI app with the FastMCP server mounted at /mcp."""
 from contextlib import asynccontextmanager
+from time import perf_counter
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -17,24 +18,31 @@ logger = OllenLogger("app")
 @asynccontextmanager
 async def app_lifespan(app: FastAPI):
     """Warm up shared resources at startup so first requests aren't slow."""
+    started = perf_counter()
+    logger.debug("warming up vector store backend (%s)", get_settings().vector_store)
     try:
         create_backend(get_settings()).warmup()  # e.g. OpenSearch: ensure the hybrid search pipeline
-        logger.info("Vector store backend warmed up")
+        logger.info("vector store backend ready (%.2fs)", perf_counter() - started)
     except Exception as exc:
-        logger.warning("Could not warm up vector store backend at startup: %s", exc)
+        logger.warning("could not warm up vector store backend at startup: %s", exc)
+    started = perf_counter()
+    logger.debug("pre-loading reranker model")
     try:
         # Building the connector is cheap; warmup() is what pulls a local model's weights off
         # disk. Both are cached for the process lifetime.
         create_reranker().connector.warmup()
-        logger.info("Reranker model loaded")
+        logger.info("reranker model loaded (%.2fs)", perf_counter() - started)
     except Exception as exc:
-        logger.warning("Could not pre-load reranker at startup: %s", exc)
+        logger.warning("could not pre-load reranker at startup: %s", exc)
+    logger.info("startup complete — ready to serve")
     yield
 
 def create_app() -> FastAPI:
     """Assemble the FastAPI application: REST routes, error handlers, mounted MCP server."""
     OllenLogger.setup(get_settings())
     s = get_settings()
+    # Show the logo first, then the resolved config line below it, as the boot header.
+    OllenLogger.banner(f"v0.1.0 · log level {s.log_level.upper()}")
     # Resolve each component to the model its *active provider* actually uses (same source the UI
     # banner reads), so the startup line reflects the live config rather than a fixed field.
     import src.providers  # noqa: F401  populate registries before the factory model lookups
@@ -79,4 +87,10 @@ app = create_app()
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # reload=True requires the app passed as an import string (uvicorn re-imports it in the
+    # watched worker subprocess); the `app` object built above is only used by other ASGI
+    # servers/import paths (e.g. `uvicorn app:app` without --reload, gunicorn workers).
+    # This is what makes the Settings UI's "Save & restart" (config/restart.py) actually take
+    # effect under a plain `python app.py`: it touches this file's mtime, and reload's file
+    # watcher is what turns that touch into a worker respawn that re-reads .env.
+    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)

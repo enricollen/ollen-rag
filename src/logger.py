@@ -6,6 +6,21 @@ from src.settings import Settings, get_settings
 # Names accepted for OLLEN_RAG_LOG_LEVEL (case-insensitive); anything else -> INFO
 _VALID_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
+# Startup banner. Printed once to stdout (not through the formatted handler, so it stays clean
+# and unprefixed) by OllenLogger.banner() at service boot.
+_LOGO = r"""
+  ___  _     _     ___ _  _     ___  _   ___
+ / _ \| |   | |   | __| \| |   | _ \/_\ / __|
+| (_) | |__ | |__ | _|| .` |   |   / _ \ (_ |
+ \___/|____||____||___|_|\_|   |_|_/_/ \_\___|
+"""
+
+
+def preview(text: str, limit: int = 80) -> str:
+    """Collapse whitespace and truncate a (possibly long/multiline) string for one-line logs."""
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
 
 class OllenLogger:
     """Thin facade over stdlib logging.
@@ -41,6 +56,16 @@ class OllenLogger:
             cls._handler = handler
         if not valid:
             parent.warning("Invalid log level '%s', falling back to INFO", settings.log_level)
+
+    @classmethod
+    def banner(cls, subtitle: str | None = None) -> None:
+        """Print the ASCII logo (plus an optional subtitle) straight to stdout at startup."""
+        sys.stdout.write(_LOGO)
+        if subtitle:
+            # Center the subtitle under the ~45-char-wide logo for a tidy header block
+            sys.stdout.write(f"{subtitle.center(45)}\n")
+        sys.stdout.write("\n")
+        sys.stdout.flush()
 
     def debug(self, msg: str, *args) -> None:
         """DEBUG-level message (printf-style args, like stdlib logging)."""
