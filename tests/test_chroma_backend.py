@@ -136,6 +136,33 @@ def test_buckets_and_bucket_files(tmp_path):
     assert b.list_buckets(IDX) == ["b1", "b2"]
     assert b.list_bucket_files(IDX) == {"b1": ["a.pdf"], "b2": ["c.pdf"]}
 
+def test_unbucketed_files_and_documents(tmp_path):
+    # An index with no buckets at all: its bucketless docs must still be listed and browsable.
+    b = _backend(tmp_path)
+    b.add_nodes(IDX, [
+        _node("1", "a.pdf", bucket=None, file_hash="h1"),
+        _node("2", "a.pdf", bucket=None, file_hash="h1"),  # same file, another chunk -> deduped in the file list
+        _node("3", "b.pdf", bucket=None, file_hash="h2"),
+    ])
+    assert b.list_buckets(IDX) == []
+    assert b.list_bucket_files(IDX) == {}
+    assert b.list_unbucketed_files(IDX) == ["a.pdf", "b.pdf"]
+    page = b.get_index_documents(IDX, 0, 20, unbucketed=True)
+    assert page["total"] == 3
+    assert {d["metadata"]["file_name"] for d in page["documents"]} == {"a.pdf", "b.pdf"}
+
+def test_unbucketed_files_excludes_bucketed_docs(tmp_path):
+    # When both bucketed and bucketless docs coexist, the two scopes stay disjoint.
+    b = _backend(tmp_path)
+    b.add_nodes(IDX, [
+        _node("1", "a.pdf", "b1", file_hash="h1"),
+        _node("2", "loose.pdf", bucket=None, file_hash="h2"),
+    ])
+    assert b.list_unbucketed_files(IDX) == ["loose.pdf"]
+    page = b.get_index_documents(IDX, 0, 20, unbucketed=True)
+    assert page["total"] == 1
+    assert page["documents"][0]["metadata"]["file_name"] == "loose.pdf"
+
 # --- dedup ---
 
 def test_find_duplicate_same_hash_and_bucket(tmp_path):

@@ -211,6 +211,7 @@ class _AdminBackend:
         self.indices = []
         self.buckets = []
         self.bucket_files = {}
+        self.unbucketed_files = []
         self.meta = None
         self.dim = None
         self.documents = {"total": 0, "documents": []}
@@ -223,11 +224,13 @@ class _AdminBackend:
         return self.buckets
     def list_bucket_files(self, index):
         return self.bucket_files
+    def list_unbucketed_files(self, index):
+        return self.unbucketed_files
     def get_index_meta(self, index):
         return self.meta
     def get_index_dim(self, index):
         return self.dim
-    def get_index_documents(self, index, offset=0, limit=20, bucket=None):
+    def get_index_documents(self, index, offset=0, limit=20, bucket=None, unbucketed=False):
         return self.documents
     def delete_index(self, index):
         if self.delete_error:
@@ -279,6 +282,7 @@ def test_index_info_returns_full_config(client, monkeypatch):
     backend.indices = [{"index": "ollen_rag_sentence", "docs.count": "7"}]
     backend.buckets = ["soc"]
     backend.bucket_files = {"soc": ["a.pdf", "b.pdf"]}
+    backend.unbucketed_files = ["loose.pdf"]
     response = client.get("/api/v1/indices/ollen_rag_sentence/info")
     assert response.status_code == 200
     body = response.json()
@@ -288,6 +292,7 @@ def test_index_info_returns_full_config(client, monkeypatch):
     assert body["docs_count"] == 7
     assert body["buckets"] == ["soc"]
     assert body["bucket_files"] == {"soc": ["a.pdf", "b.pdf"]}
+    assert body["unbucketed_files"] == ["loose.pdf"]
 
 def test_index_info_legacy_index_nulls(client, monkeypatch):
     backend = _use_backend(monkeypatch, _AdminBackend())  # all defaults: no meta, no dim, empty lists

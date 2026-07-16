@@ -175,15 +175,34 @@ class ChromaBackend(VectorStoreBackend):
         except Exception as exc:
             raise VectorStoreError(f"Failed to list Chroma collections: {exc}") from exc
 
-    def get_index_documents(self, index: str, offset: int = 0, limit: int = 20, bucket: str | None = None) -> dict:
-        """Paginate stored documents (content + metadata) for browsing, optionally scoped to one bucket;
+    def get_index_documents(self, index: str, offset: int = 0, limit: int = 20, bucket: str | None = None, unbucketed: bool = False,
+                             file_name: str | None = None) -> dict:
+        """Paginate stored documents (content + metadata) for browsing, optionally scoped to one bucket
+        (or, with unbucketed=True, to documents that carry no bucket at all) and/or a single source file_name;
         embeddings and llama-index bookkeeping keys are excluded so the UI stays readable. Page order is
         Chroma's own (no server sort)."""
         col = self._open(index)
-        where = {"bucket": bucket} if bucket else None
-        # Chroma's count() ignores `where`, so a filtered total = number of ids matching the bucket.
-        total = len(col.get(where=where, include=[]).get("ids") or []) if where else col.count()
-        got = col.get(where=where, offset=offset, limit=limit, include=["documents", "metadatas"])
+        if unbucketed:
+            # Chroma `where` has no "field absent" operator, so select the bucketless ids in Python,
+            # then fetch just the requested page by id.
+            got_all = col.get(include=["metadatas"])
+            all_ids = got_all.get("ids") or []
+            all_metas = got_all.get("metadatas") or []
+            matched_ids = [
+                all_ids[i] for i in range(len(all_ids))
+                if not (all_metas[i] or {}).get("bucket") and (not file_name or (all_metas[i] or {}).get("file_name") == file_name)
+            ]
+            total = len(matched_ids)
+            page_ids = matched_ids[offset:offset + limit]
+            got = col.get(ids=page_ids, include=["documents", "metadatas"]) if page_ids else {"ids": [], "documents": [], "metadatas": []}
+        else:
+            conds = [{"bucket": bucket}] if bucket else []
+            if file_name:
+                conds.append({"file_name": file_name})
+            where = {"$and": conds} if len(conds) > 1 else (conds[0] if conds else None)
+            # Chroma's count() ignores `where`, so a filtered total = number of ids matching the filter.
+            total = len(col.get(where=where, include=[]).get("ids") or []) if where else col.count()
+            got = col.get(where=where, offset=offset, limit=limit, include=["documents", "metadatas"])
         ids = got.get("ids") or []
         docs = got.get("documents") or []
         metas = got.get("metadatas") or []
@@ -240,6 +259,12 @@ class ChromaBackend(VectorStoreBackend):
             if bucket and file_name:
                 out.setdefault(bucket, set()).add(file_name)
         return {b: sorted(files) for b, files in out.items()}
+
+    def list_unbucketed_files(self, index: str) -> list[str]:
+        """Distinct file_names of documents stored with no bucket, so the UI can still show the
+        containing documents of an index whose docs were ingested without a bucket."""
+        files = {md.get("file_name") for md in self._all_metadatas(index) if not md.get("bucket") and md.get("file_name")}
+        return sorted(files)
 
     def find_duplicate_file(self, index: str, file_hash: str, bucket: str | None) -> str | None:
         """file_name of an already-indexed doc with the same hash+bucket, or None. Dedup scope is
