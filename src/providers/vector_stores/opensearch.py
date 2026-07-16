@@ -234,9 +234,11 @@ class OpenSearchBackend(VectorStoreBackend):
         except httpx.HTTPError as exc:
             raise VectorStoreError(f"Failed to list indices: {exc}") from exc
 
-    def get_index_documents(self, index: str, offset: int = 0, limit: int = 20, bucket: str | None = None) -> dict:
+    def get_index_documents(self, index: str, offset: int = 0, limit: int = 20, bucket: str | None = None, unbucketed: bool = False,
+                             file_name: str | None = None) -> dict:
         """Paginate raw stored documents (content + metadata) for browsing/inspection, optionally
-        scoped to a single bucket.
+        scoped to a single bucket (or, with unbucketed=True, to documents that carry no bucket at all)
+        and/or a single source file_name.
 
         Excludes the dense embedding vector and llama-index's internal `_node_content`
         bookkeeping blob so the UI stays readable.
@@ -245,8 +247,16 @@ class OpenSearchBackend(VectorStoreBackend):
             "_source": {"excludes": ["embedding", "metadata._node_content"]},
             "sort": [{"metadata.file_name.keyword": {"order": "asc", "unmapped_type": "keyword"}}, "_id"],
         }
-        if bucket:
-            body_query["query"] = {"term": {"metadata.bucket.keyword": bucket}}
+        must: list[dict] = []
+        if unbucketed:
+            # Documents ingested without a bucket: the metadata.bucket field is simply absent.
+            must.append({"bool": {"must_not": [{"exists": {"field": "metadata.bucket"}}]}})
+        elif bucket:
+            must.append({"term": {"metadata.bucket.keyword": bucket}})
+        if file_name:
+            must.append({"term": {"metadata.file_name.keyword": file_name}})
+        if must:
+            body_query["query"] = {"bool": {"must": must}}
         try:
             response = self._client.post(
                 f"/{index}/_search",
@@ -325,6 +335,23 @@ class OpenSearchBackend(VectorStoreBackend):
         for b in body.get("aggregations", {}).get("buckets", {}).get("buckets", []):
             out[b["key"]] = [f["key"] for f in b.get("files", {}).get("buckets", [])]
         return out
+
+    def list_unbucketed_files(self, index: str) -> list[str]:
+        """Distinct file_names of documents stored with no bucket, so the UI can still show the
+        containing documents of an index whose docs were ingested without a bucket. Filters to
+        docs where metadata.bucket is absent, then aggregates their file_names."""
+        try:
+            response = self._client.post(
+                f"/{index}/_search",
+                params={"size": 0},
+                json={"query": {"bool": {"must_not": [{"exists": {"field": "metadata.bucket"}}]}},
+                      "aggs": {"files": {"terms": {"field": "metadata.file_name.keyword", "size": 500}}}},
+            )
+            response.raise_for_status()
+            body = response.json()
+        except httpx.HTTPError as exc:
+            raise VectorStoreError(f"Failed to list unbucketed files for '{index}': {exc}") from exc
+        return [f["key"] for f in body.get("aggregations", {}).get("files", {}).get("buckets", [])]
 
     def find_duplicate_file(self, index: str, file_hash: str, bucket: str | None) -> str | None:
         """Return the file_name of an already-indexed document with the same content hash, or None.

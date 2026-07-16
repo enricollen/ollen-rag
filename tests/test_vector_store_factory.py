@@ -64,6 +64,9 @@ class FakeBackend(VectorStoreBackend):
     def list_bucket_files(self, index):
         return {}
 
+    def list_unbucketed_files(self, index):
+        return []
+
     def find_duplicate_file(self, index, file_hash, bucket):
         return None
 

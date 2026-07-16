@@ -238,7 +238,9 @@ details[open] > .eval-details-summary::before { transform: rotate(90deg); }
 .bucket-del:hover { background: var(--bad); color: #fff; }
 .bucket-docs-title { margin-top: 1rem; font-weight: 600; font-size: .88rem; color: var(--text); }
 .bucket-docs-list { list-style: none; margin: .5rem 0 0; padding: 0; display: flex; flex-direction: column; gap: .3rem; }
-.bucket-doc-item { font-size: .84rem; color: var(--text-dim); background: var(--bg-raised); border: 1px solid var(--card-border); border-radius: 7px; padding: .4rem .7rem; }
+.bucket-doc-item { font-size: .84rem; color: var(--text-dim); background: var(--bg-raised); border: 1px solid var(--card-border); border-radius: 7px; padding: .4rem .7rem; cursor: pointer; transition: border-color .12s; }
+.bucket-doc-item:hover { border-color: var(--accent); }
+.bucket-doc-item.selected { border-color: var(--accent-2); box-shadow: inset 0 0 0 1px var(--accent-2); color: var(--text); }
 
 /* Job / status */
 .job-card { background: var(--bg-raised); border: 1px solid var(--card-border); border-radius: 9px; padding: .85rem 1rem; margin-bottom: .6rem; }
