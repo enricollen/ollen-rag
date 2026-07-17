@@ -7,6 +7,54 @@ import { kCurveChart, deltaChart, legBarChart, wireEvalCharts } from "./eval-cha
 // Cutoffs the backend reports curves at (mirror of evaluation.CUTOFFS)
 const CUTOFFS = ["1", "3", "5", "10"];
 
+// Plain-language glossary for every metric on the page. Each entry: what it measures + a tiny
+// concrete example, so a non-specialist can read the report. Rendered into the hidden legend
+// (metricsLegendHtml) and reused as hover `title=` text on metric labels via METRIC_TITLE.
+const METRIC_DEFS = [
+  { key: "hit_rate", name: "Hit-rate", short: "Did any correct source show up at all?",
+    long: "Share of queries where at least one relevant document lands anywhere in the top-k results.",
+    example: "10 queries; 8 had a correct source somewhere in their top-5 → hit-rate 80%." },
+  { key: "recall", name: "Recall", short: "How many of the correct sources did we find?",
+    long: "Of all documents that should have been retrieved for a query, the fraction actually returned.",
+    example: "A query has 4 relevant docs; retrieval returned 3 of them → recall 0.75." },
+  { key: "precision", name: "Precision@k", short: "How clean are the top-k results?",
+    long: "Of the top-k returned results, the fraction that are actually relevant (the rest are noise).",
+    example: "Top-5 results, 2 relevant + 3 irrelevant → precision@5 = 0.40." },
+  { key: "mrr", name: "MRR", short: "How high up was the first correct hit?",
+    long: "Mean Reciprocal Rank — average of 1 / (rank of the first relevant result) across queries. Higher = the right answer appears earlier.",
+    example: "First correct doc at rank 2 → 1/2 = 0.5 for that query; then averaged over all queries." },
+  { key: "ndcg", name: "nDCG", short: "Overall ranking quality, top-weighted.",
+    long: "Normalized Discounted Cumulative Gain — rewards putting relevant docs near the top, scaled 0–1 against the ideal ordering.",
+    example: "Correct docs at ranks 1 & 2 score higher than the same docs sitting at ranks 4 & 5." },
+  { key: "map", name: "MAP", short: "Ranking quality across all correct sources.",
+    long: "Mean Average Precision — for each query, average the precision measured at every relevant hit, then take the mean over queries. Rewards ranking all relevant docs high, not just the first.",
+    example: "Relevant hits at ranks 1 and 3 → avg of P@1=1.0 and P@3=0.67 = 0.83 for that query." },
+  { key: "latency", name: "Latency", short: "Time per query.",
+    long: "Wall-clock retrieval time. p50 = median; p95 = slow tail (95% of queries finish faster than this).",
+    example: "p50 40ms means half the queries finished in under 40ms." },
+  { key: "ci", name: "95% CI", short: "How trustworthy is the number?",
+    long: "95% bootstrap confidence interval — the queries are resampled many times to estimate the range the true metric likely sits in. Narrow = stable; wide = few or noisy cases.",
+    example: "nDCG 0.62 with CI 0.55–0.69: on similar data, expect roughly that band." },
+];
+
+// key -> "Name — one-liner", for native hover tooltips on metric labels.
+const METRIC_TITLE = Object.fromEntries(METRIC_DEFS.map(d => [d.key, `${d.name} — ${d.short}`]));
+
+// Hidden-by-default legend: a <details> the user clicks to reveal a grid of metric explanations.
+function metricsLegendHtml() {
+  const items = METRIC_DEFS.map(d => `
+    <div class="metric-def">
+      <div class="metric-def-name">${escapeHtml(d.name)}</div>
+      <div class="metric-def-long">${escapeHtml(d.long)}</div>
+      <div class="metric-def-ex"><span class="metric-def-ex-tag">e.g.</span> ${escapeHtml(d.example)}</div>
+    </div>`).join("");
+  return `
+    <details class="metric-legend">
+      <summary class="metric-legend-summary">ℹ️ What do these metrics mean? <span class="hint">(click to show — or hover any metric label)</span></summary>
+      <div class="metric-def-grid">${items}</div>
+    </details>`;
+}
+
 function metricBarHtml(value) {
   const pct = Math.round(Math.max(0, Math.min(1, value)) * 100);
   const color = value >= 0.8 ? "var(--good)" : value >= 0.5 ? "var(--warn)" : "var(--bad)";
@@ -121,6 +169,19 @@ function runOptionHtml(run) {
   return `<option value="${escapeHtml(run.id)}">${escapeHtml(run.timestamp ?? run.id)}${escapeHtml(lbl)}${nd}${escapeHtml(sys)}</option>`;
 }
 
+// Headline metrics + system tag for a picked run, shown under its A/B select so the two sides are
+// legible at a glance without opening the compare. Falls back quietly for older runs.
+function runMetaHtml(run) {
+  if (!run) return `<span class="hint">no run selected</span>`;
+  const o = run.overall ?? {};
+  const bits = [];
+  if (o.ndcg != null) bits.push(`nDCG ${o.ndcg.toFixed(3)}`);
+  if (o.recall != null) bits.push(`recall ${o.recall.toFixed(3)}`);
+  if (o.hit_rate != null) bits.push(`hit ${(o.hit_rate * 100).toFixed(0)}%`);
+  const sys = systemTagText(run.params?.system).replace(/^ · /, "");
+  return `<span class="mono">${bits.join(" · ") || "—"}</span>${sys ? `<div class="hint">${escapeHtml(sys)}</div>` : ""}`;
+}
+
 // System block above the metric delta table: which vector store/embedding/chunking each run
 // actually used, so a compare is legible as "system X vs system Y", not just abstract deltas.
 function systemRowHtml(run, letter) {
@@ -166,13 +227,13 @@ function caseCardHtml(c, k) {
 
   const metricsRow = `
     <div class="eval-metrics-row">
-      <div class="eval-metric"><span class="eval-metric-label">Recall</span><span class="eval-metric-val">${(c.recall * 100).toFixed(0)}%</span></div>
-      <div class="eval-metric"><span class="eval-metric-label">P@5</span><span class="eval-metric-val">${((c.precision_at?.["5"] ?? 0) * 100).toFixed(0)}%</span></div>
-      <div class="eval-metric"><span class="eval-metric-label">RR</span><span class="eval-metric-val mono">${(c.reciprocal_rank ?? 0).toFixed(3)}</span></div>
-      <div class="eval-metric"><span class="eval-metric-label">nDCG</span><span class="eval-metric-val mono">${(c.ndcg ?? 0).toFixed(3)}</span></div>
-      <div class="eval-metric"><span class="eval-metric-label">AP</span><span class="eval-metric-val mono">${(c.average_precision ?? 0).toFixed(3)}</span></div>
-      <div class="eval-metric"><span class="eval-metric-label">Latency</span><span class="eval-metric-val mono">${(c.latency_ms ?? 0).toFixed(0)}ms</span></div>
-      <div class="eval-metric"><span class="eval-metric-label">Matched</span><span class="eval-metric-val">${c.matched}/${c.expected}</span></div>
+      <div class="eval-metric" title="${escapeHtml(METRIC_TITLE.recall)}"><span class="eval-metric-label">Recall</span><span class="eval-metric-val">${(c.recall * 100).toFixed(0)}%</span></div>
+      <div class="eval-metric" title="${escapeHtml(METRIC_TITLE.precision)}"><span class="eval-metric-label">P@5</span><span class="eval-metric-val">${((c.precision_at?.["5"] ?? 0) * 100).toFixed(0)}%</span></div>
+      <div class="eval-metric" title="Reciprocal rank — 1 / rank of this query's first correct hit (rank 2 → 0.5)."><span class="eval-metric-label">RR</span><span class="eval-metric-val mono">${(c.reciprocal_rank ?? 0).toFixed(3)}</span></div>
+      <div class="eval-metric" title="${escapeHtml(METRIC_TITLE.ndcg)}"><span class="eval-metric-label">nDCG</span><span class="eval-metric-val mono">${(c.ndcg ?? 0).toFixed(3)}</span></div>
+      <div class="eval-metric" title="Average precision — this query's contribution to MAP (precision averaged at each relevant hit)."><span class="eval-metric-label">AP</span><span class="eval-metric-val mono">${(c.average_precision ?? 0).toFixed(3)}</span></div>
+      <div class="eval-metric" title="${escapeHtml(METRIC_TITLE.latency)}"><span class="eval-metric-label">Latency</span><span class="eval-metric-val mono">${(c.latency_ms ?? 0).toFixed(0)}ms</span></div>
+      <div class="eval-metric" title="Relevant sources found for this query vs how many were expected."><span class="eval-metric-label">Matched</span><span class="eval-metric-val">${c.matched}/${c.expected}</span></div>
     </div>`;
 
   const expectedHtml = (c.expected_chunks ?? []).map(e => `
@@ -219,6 +280,8 @@ function renderReport(res, k, results) {
   const overall = res.overall ?? {};
   const byBucket = res.per_bucket ?? {};
   const nCases = overall.cases ?? res.cases?.length ?? "?";
+  const nHit = res.cases?.filter(c => c.matched > 0).length ?? 0;
+  const nMiss = (res.cases?.length ?? 0) - nHit;
   const ci = overall.ci ?? {};
   const lat = overall.latency_ms ?? {};
   results.innerHTML = `
@@ -226,12 +289,12 @@ function renderReport(res, k, results) {
       <div class="card">
         <h2 style="margin-top:0">Overall</h2>
         <div class="kv-list">
-          <div class="kv-row"><span class="k">Hit-rate</span><span class="v">${metricBarHtml(overall.hit_rate ?? 0)}${ciHtml(ci.hit_rate)}</span></div>
-          <div class="kv-row"><span class="k">Recall (all)</span><span class="v">${metricBarHtml(overall.recall ?? 0)}${ciHtml(ci.recall)}</span></div>
-          <div class="kv-row"><span class="k">nDCG@10</span><span class="v">${metricBarHtml(overall.ndcg ?? 0)}${ciHtml(ci.ndcg)}</span></div>
-          <div class="kv-row"><span class="k">MAP</span><span class="v">${metricBarHtml(overall.map ?? 0)}${ciHtml(ci.map)}</span></div>
-          <div class="kv-row"><span class="k">MRR</span><span class="v mono">${(overall.mrr ?? 0).toFixed(3)}${ciHtml(ci.mrr, false)}</span></div>
-          <div class="kv-row"><span class="k">Latency</span><span class="v mono">p50 ${(lat.p50 ?? 0).toFixed(0)}ms · p95 ${(lat.p95 ?? 0).toFixed(0)}ms</span></div>
+          <div class="kv-row" title="${escapeHtml(METRIC_TITLE.hit_rate)}"><span class="k">Hit-rate</span><span class="v">${metricBarHtml(overall.hit_rate ?? 0)}${ciHtml(ci.hit_rate)}</span></div>
+          <div class="kv-row" title="${escapeHtml(METRIC_TITLE.recall)}"><span class="k">Recall (all)</span><span class="v">${metricBarHtml(overall.recall ?? 0)}${ciHtml(ci.recall)}</span></div>
+          <div class="kv-row" title="${escapeHtml(METRIC_TITLE.ndcg)}"><span class="k">nDCG@10</span><span class="v">${metricBarHtml(overall.ndcg ?? 0)}${ciHtml(ci.ndcg)}</span></div>
+          <div class="kv-row" title="${escapeHtml(METRIC_TITLE.map)}"><span class="k">MAP</span><span class="v">${metricBarHtml(overall.map ?? 0)}${ciHtml(ci.map)}</span></div>
+          <div class="kv-row" title="${escapeHtml(METRIC_TITLE.mrr)}"><span class="k">MRR</span><span class="v mono">${(overall.mrr ?? 0).toFixed(3)}${ciHtml(ci.mrr, false)}</span></div>
+          <div class="kv-row" title="${escapeHtml(METRIC_TITLE.latency)}"><span class="k">Latency</span><span class="v mono">p50 ${(lat.p50 ?? 0).toFixed(0)}ms · p95 ${(lat.p95 ?? 0).toFixed(0)}ms</span></div>
           <div class="kv-row"><span class="k">Cases</span><span class="v">${nCases}</span></div>
         </div>
         <div class="eval-section-label" style="margin-top:.6rem">Curves</div>
@@ -250,15 +313,36 @@ function renderReport(res, k, results) {
     ${res.run_id ? `<div class="hint" style="margin:.5rem 0">saved as run <code class="inline">${escapeHtml(res.run_id)}</code></div>` : ""}
     ${res.params ? `<div class="hint" style="margin:.5rem 0 1rem">params: ${Object.entries(res.params).filter(([k,v])=>v!=null && k !== "system").map(([pk,pv])=>`${pk}=${pv}`).join(" · ")}${escapeHtml(systemTagText(res.params.system))}</div>` : ""}
     ${res.cases?.length ? `
-    <div style="margin-top:.25rem">
-      <h2>Case details <span class="hint">(${res.cases.length} cases — expand each row for nodes)</span></h2>
-      ${res.cases.map(c => caseCardHtml(c, k)).join("")}
-    </div>` : ""}
+    <details class="eval-cases-fold" style="margin-top:.5rem">
+      <summary class="eval-cases-fold-summary">
+        <span class="eval-cases-fold-title">Case details</span>
+        <span class="eval-cases-fold-meta">${res.cases.length} cases · <span style="color:var(--good)">${nHit} hit</span> / <span style="color:var(--bad)">${nMiss} miss</span></span>
+        <span class="hint eval-cases-fold-cta">click to expand</span>
+      </summary>
+      <div class="eval-cases-toolbar">
+        <span class="hint">Per-query breakdown — expected sources vs what retrieval actually returned.</span>
+        <span class="spacer"></span>
+        <button class="ghost" id="ev-expand-all">Expand all nodes</button>
+        <button class="ghost" id="ev-collapse-all">Collapse all</button>
+      </div>
+      <div class="eval-cases-list">
+        ${res.cases.map(c => caseCardHtml(c, k)).join("")}
+      </div>
+    </details>` : ""}
   `;
   // Node bodies live in collapsed <details>; measure chunk overflow only when a row opens.
   results.querySelectorAll(".eval-details").forEach(d => {
     d.addEventListener("toggle", () => { if (d.open) wireChunks(d); });
   });
+  // Expand/collapse every per-case node panel at once. Expanding wires chunk overflow up front.
+  const expandAll = results.querySelector("#ev-expand-all");
+  const collapseAll = results.querySelector("#ev-collapse-all");
+  if (expandAll) expandAll.onclick = () => {
+    results.querySelectorAll(".eval-cases-list .eval-details").forEach(d => { d.open = true; wireChunks(d); });
+  };
+  if (collapseAll) collapseAll.onclick = () => {
+    results.querySelectorAll(".eval-cases-list .eval-details").forEach(d => { d.open = false; });
+  };
   wireEvalCharts(results);
 }
 
@@ -269,6 +353,8 @@ export async function render(view) {
   view.innerHTML = `
     <h1 class="page-title">Retrieval Eval</h1>
     <p class="page-sub">Run the golden-dataset eval harness (<code class="inline">POST /api/v1/eval/retrieval</code>). Retrieval is <strong>bucket-agnostic</strong> — it searches the whole index, so make sure the chosen index actually contains the dataset's documents (a mismatch just returns 0 hits). A case's optional <code class="inline">bucket</code> only labels its metrics. Metrics: hit-rate, recall@k, precision@k, MRR, nDCG, MAP — with per-k curves, latency, and 95% bootstrap CIs, overall and per label.</p>
+
+    ${metricsLegendHtml()}
 
     <div class="card">
       <label class="field">
@@ -308,12 +394,24 @@ export async function render(view) {
 
     <div class="card" id="ev-history-card" style="margin-top:1rem">
       <h2 style="margin-top:0">Run history &amp; A/B compare</h2>
-      <p class="page-sub" style="margin-top:0">Saved runs (<code class="inline">Save run</code> above). Pick two and compare to see paired metric deltas with significance.</p>
-      <div class="row" style="align-items:flex-end;gap:.75rem;flex-wrap:wrap">
-        <label class="field" style="flex:1;min-width:14rem"><span class="label-text">Run A (baseline)</span><select id="ev-run-a"></select></label>
-        <label class="field" style="flex:1;min-width:14rem"><span class="label-text">Run B</span><select id="ev-run-b"></select></label>
-        <button id="ev-compare">Compare</button>
-        <button id="ev-refresh-runs" class="ghost">Refresh</button>
+      <p class="page-sub" style="margin-top:0">Every eval you save (tick <code class="inline">Save run</code> above) is stored here. Pick two and hit compare to see whether a change — different embedding model, chunking, threshold — actually moved the numbers. Runs are matched <strong>per query</strong>, so the delta is a fair like-for-like, and each metric is flagged <em>significant</em> when its confidence interval clears zero (i.e. unlikely to be luck).</p>
+      <div class="ab-compare">
+        <div class="ab-side ab-side-a">
+          <div class="ab-side-label">A · Baseline <span class="hint">what you measure against</span></div>
+          <select id="ev-run-a"></select>
+          <div class="ab-side-meta" id="ev-run-a-meta"></div>
+        </div>
+        <div class="ab-arrow" aria-hidden="true">→</div>
+        <div class="ab-side ab-side-b">
+          <div class="ab-side-label">B · Variant <span class="hint">the change you're testing</span></div>
+          <select id="ev-run-b"></select>
+          <div class="ab-side-meta" id="ev-run-b-meta"></div>
+        </div>
+      </div>
+      <div class="btn-row" style="margin-top:.9rem;align-items:center">
+        <button class="primary" id="ev-compare">Compare A → B</button>
+        <button id="ev-refresh-runs" class="ghost">Refresh list</button>
+        <span class="hint" id="ev-history-empty" style="display:none">No saved runs yet — tick “Save run” above, run an eval, then come back.</span>
       </div>
       <div id="ev-compare-result"></div>
     </div>
@@ -356,6 +454,14 @@ export async function render(view) {
   const compareResult = document.getElementById("ev-compare-result");
   let runsById = {};  // id -> run summary (incl. params.system), so compare can show "which system" without a refetch
 
+  // Refresh the headline-metric line under each picker whenever a selection changes.
+  function refreshMeta() {
+    document.getElementById("ev-run-a-meta").innerHTML = runMetaHtml(runsById[runA.value]);
+    document.getElementById("ev-run-b-meta").innerHTML = runMetaHtml(runsById[runB.value]);
+  }
+  runA.onchange = refreshMeta;
+  runB.onchange = refreshMeta;
+
   async function loadRuns() {
     try {
       const { runs } = await api("/api/v1/eval/runs");
@@ -370,6 +476,8 @@ export async function render(view) {
         runB.value = prevB || runs[0].id;
       }
       document.getElementById("ev-history-card").style.opacity = runs.length ? "1" : ".7";
+      document.getElementById("ev-history-empty").style.display = runs.length ? "none" : "";
+      refreshMeta();
     } catch { /* history is best-effort; leave selects empty */ }
   }
 
