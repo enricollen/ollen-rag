@@ -63,8 +63,10 @@ class VectorStoreBackend(ABC):
         """Service-owned indices with document counts."""
 
     @abstractmethod
-    def get_index_documents(self, index: str, offset: int, limit: int, bucket: str | None = None) -> dict:
-        """Paginate stored documents (content + metadata) for browsing, optionally scoped to one bucket."""
+    def get_index_documents(self, index: str, offset: int, limit: int, bucket: str | None = None, unbucketed: bool = False,
+                             file_name: str | None = None) -> dict:
+        """Paginate stored documents (content + metadata) for browsing, optionally scoped to one bucket,
+        (unbucketed=True) to documents carrying no bucket at all, and/or a single source file_name."""
 
     @abstractmethod
     def list_buckets(self, index: str) -> list[str]:
@@ -73,6 +75,10 @@ class VectorStoreBackend(ABC):
     @abstractmethod
     def list_bucket_files(self, index: str) -> dict[str, list[str]]:
         """Map each bucket to the distinct file_names it contains."""
+
+    @abstractmethod
+    def list_unbucketed_files(self, index: str) -> list[str]:
+        """Distinct file_names of documents stored with no bucket."""
 
     @abstractmethod
     def find_duplicate_file(self, index: str, file_hash: str, bucket: str | None) -> str | None:

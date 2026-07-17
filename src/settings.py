@@ -34,14 +34,33 @@ class Settings(BaseSettings):
     litellm_rerank_model: str = ""
     litellm_rerank_api_base: str = ""
     litellm_rerank_api_key: str = ""
+    # OpenAI / OpenAI-compatible API (served via LiteLLM). Model tags are bare names; the
+    # "openai/" prefix is added by the connector. An empty api_base routes to the official
+    # OpenAI endpoint; set it to reach any OpenAI-compatible server (vLLM, LocalAI, …).
+    openai_model: str = ""
+    openai_api_key: str = ""
+    openai_api_base: str = ""
+    openai_max_new_tokens: int = 800
+    openai_temperature: float = 0.1
+    openai_embedding_model: str = ""
+    # OpenRouter (served via LiteLLM): one API key, hundreds of vendors' models behind a single
+    # "openrouter/<vendor>/<model>" string. Model tags are bare "<vendor>/<model>"; the
+    # "openrouter/" prefix is added by the connector. An empty api_base routes to OpenRouter's
+    # own endpoint; set it only to reach a self-hosted OpenRouter-compatible gateway.
+    openrouter_model: str = ""
+    openrouter_api_key: str = ""
+    openrouter_api_base: str = ""
+    openrouter_max_new_tokens: int = 800
+    openrouter_temperature: float = 0.1
+    openrouter_embedding_model: str = ""
     # Ollama (served via LiteLLM); models are bare tags, the "ollama/" prefix is added by the
     # connector. The chat model cannot embed, so embeddings get their own tag.
     ollama_api_base: str = "http://localhost:11434"
     ollama_model: str = "llama3.1"
     ollama_embedding_model: str = "nomic-embed-text"
     # provider selection
-    embedding_provider: str = "watsonx"  # watsonx | fastembed | litellm | litellm-watsonx | litellm-ollama
-    llm_provider: str = "watsonx"  # watsonx | litellm | litellm-watsonx | litellm-ollama
+    embedding_provider: str = "watsonx"  # watsonx | fastembed | litellm | litellm-watsonx | litellm-ollama | litellm-openai | litellm-openrouter
+    llm_provider: str = "watsonx"  # watsonx | litellm | litellm-watsonx | litellm-ollama | litellm-openai | litellm-openrouter
     fastembed_model_name: str = "BAAI/bge-small-en-v1.5"
     # Local cache for fastembed ONNX model files; persists downloads so the model is fetched from
     # the hub once, then reused offline. A relative path valid in both Docker (writable /app) and a

@@ -24,8 +24,12 @@ def is_configured(settings: Settings) -> bool:
     provider = settings.llm_provider
     if provider in _KEYLESS_LLM:
         return True
-    if provider == "watsonx":
+    if provider in ("watsonx", "litellm-watsonx"):
         return bool(settings.watsonx_apikey and settings.watsonx_project_id)
+    if provider == "litellm-openai":
+        return bool(settings.openai_model)
+    if provider == "litellm-openrouter":
+        return bool(settings.openrouter_model)
     if provider.startswith("litellm"):
         return bool(settings.litellm_model and (settings.litellm_api_key or settings.litellm_api_base))
     return False

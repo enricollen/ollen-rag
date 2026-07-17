@@ -11,6 +11,8 @@ const PAGE_SIZE = 20;
 let currentPage = 0;
 let currentIndex = null;
 let currentBucket = null;  // when set, the "stored chunks" pager is scoped to this bucket
+let currentUnbucketed = false;  // when true, the pager is scoped to documents that carry no bucket
+let currentFileName = null;  // when set, the "stored chunks" pager is further scoped to this one file
 
 function docCardHtml(doc) {
   const chips = Object.entries(doc.metadata || {})
@@ -38,6 +40,20 @@ function bucketCardHtml(name, count) {
     </div>`;
 }
 
+// Pseudo-bucket card for documents ingested with no bucket. Read-only (no 🗑: bucketless docs
+// can't be targeted by the delete-bucket endpoint) and marked so its click wires the "no bucket"
+// chunk filter instead of a named-bucket filter.
+function unbucketedCardHtml(count) {
+  return `
+    <div class="bucket-card-wrap">
+      <button type="button" class="bucket-card" data-unbucketed="1">
+        <span class="bucket-card-icon">📄</span>
+        <span class="bucket-card-name">No bucket</span>
+        <span class="bucket-card-count">${count} doc${count === 1 ? "" : "s"}</span>
+      </button>
+    </div>`;
+}
+
 // Fetch the selected index's info and render its buckets as cards. Clicking a card lists that
 // bucket's 📄 file names AND refreshes the "stored chunks" pager below, scoped to that bucket;
 // clicking the selected card again clears the scope (back to all chunks in the index).
@@ -49,21 +65,39 @@ async function loadBuckets(view, indexName) {
   try {
     const info = await fetchIndexInfo(indexName);
     const bucketFiles = info.bucket_files || {};
+    const unbucketedFiles = info.unbucketed_files || [];
     const names = Object.keys(bucketFiles);
-    if (!names.length) { host.innerHTML = '<div class="empty-state">No buckets in this index.</div>'; return; }
-    host.innerHTML = names.map(n => bucketCardHtml(n, bucketFiles[n].length)).join("");
+    // Nothing to show only when there are neither named buckets nor bucketless documents.
+    if (!names.length && !unbucketedFiles.length) { host.innerHTML = '<div class="empty-state">No documents in this index.</div>'; return; }
+    // Named-bucket cards first, then the read-only "No bucket" card for documents ingested without one.
+    host.innerHTML = names.map(n => bucketCardHtml(n, bucketFiles[n].length)).join("")
+      + (unbucketedFiles.length ? unbucketedCardHtml(unbucketedFiles.length) : "");
     host.querySelectorAll(".bucket-card").forEach(card => {
       card.onclick = () => {
+        const isUnbucketed = card.dataset.unbucketed === "1";
         const bucket = card.dataset.bucket;
         const alreadySelected = card.classList.contains("selected");
-        // Toggle: re-clicking the active bucket clears the filter; otherwise select this one.
-        currentBucket = alreadySelected ? null : bucket;
+        // Toggle: re-clicking the active card clears the filter; otherwise select this one. The
+        // "No bucket" card and named buckets are mutually exclusive scopes.
+        currentBucket = alreadySelected || isUnbucketed ? null : bucket;
+        currentUnbucketed = !alreadySelected && isUnbucketed;
+        currentFileName = null;  // switching bucket scope clears any active per-file filter
         host.querySelectorAll(".bucket-card").forEach(c => c.classList.toggle("selected", !alreadySelected && c === card));
-        if (currentBucket) {
-          const files = bucketFiles[bucket] || [];
+        if (currentBucket || currentUnbucketed) {
+          const files = isUnbucketed ? unbucketedFiles : (bucketFiles[bucket] || []);
+          const title = isUnbucketed ? "📄 No bucket" : `📦 ${escapeHtml(bucket)}`;
           docsHost.innerHTML = `
-            <div class="bucket-docs-title">📦 ${escapeHtml(bucket)} — ${files.length} document${files.length === 1 ? "" : "s"}</div>
-            <ul class="bucket-docs-list">${files.map(f => `<li class="bucket-doc-item">📄 ${escapeHtml(f)}</li>`).join("") || '<li class="hint">empty</li>'}</ul>`;
+            <div class="bucket-docs-title">${title} — ${files.length} document${files.length === 1 ? "" : "s"} <span class="hint">(click a file to filter stored chunks below)</span></div>
+            <ul class="bucket-docs-list">${files.map(f => `<li class="bucket-doc-item" data-file="${escapeHtml(f)}" role="button" tabindex="0">📄 ${escapeHtml(f)}</li>`).join("") || '<li class="hint">empty</li>'}</ul>`;
+          docsHost.querySelectorAll(".bucket-doc-item[data-file]").forEach(item => {
+            item.onclick = () => {
+              const already = item.classList.contains("selected");
+              currentFileName = already ? null : item.dataset.file;
+              docsHost.querySelectorAll(".bucket-doc-item").forEach(i => i.classList.toggle("selected", !already && i === item));
+              currentPage = 0;
+              loadDocuments(view, currentIndex, currentPage);
+            };
+          });
         } else {
           docsHost.innerHTML = "";
         }
@@ -83,7 +117,7 @@ async function loadBuckets(view, indexName) {
         try {
           const res = await api(`/api/v1/indices/${encodeURIComponent(indexName)}/buckets/${encodeURIComponent(bucket)}`, { method: "DELETE" });
           toast(`Deleted bucket "${bucket}" (${res.deleted} document(s))`, "success");
-          if (currentBucket === bucket) currentBucket = null;  // clear a stale chunk filter
+          if (currentBucket === bucket) { currentBucket = null; currentFileName = null; }  // clear a stale chunk filter
           currentPage = 0;
           await loadBuckets(view, indexName);                    // re-render bucket cards
           await loadDocuments(view, currentIndex, currentPage);  // refresh stored chunks
@@ -103,16 +137,20 @@ async function loadDocuments(view, indexName, page) {
   const pager = document.getElementById("pager-info");
   docsHost.innerHTML = '<div class="empty-state"><span class="spinner"></span></div>';
   try {
-    const bucketQs = currentBucket ? `&bucket=${encodeURIComponent(currentBucket)}` : "";
-    const res = await api(`/api/v1/indices/${encodeURIComponent(indexName)}/documents?offset=${page * PAGE_SIZE}&limit=${PAGE_SIZE}${bucketQs}`);
+    const scopeQs = (currentUnbucketed ? "&unbucketed=true" : (currentBucket ? `&bucket=${encodeURIComponent(currentBucket)}` : ""))
+      + (currentFileName ? `&file_name=${encodeURIComponent(currentFileName)}` : "");
+    const res = await api(`/api/v1/indices/${encodeURIComponent(indexName)}/documents?offset=${page * PAGE_SIZE}&limit=${PAGE_SIZE}${scopeQs}`);
+    const fileLabel = currentFileName ? ` from "${escapeHtml(currentFileName)}"` : "";
+    const scopeLabel = (currentUnbucketed ? " with no bucket" : (currentBucket ? ` in bucket "${escapeHtml(currentBucket)}"` : " in this index")) + fileLabel;
     if (!res.documents.length) {
-      docsHost.innerHTML = `<div class="empty-state">No documents${currentBucket ? ` in bucket "${escapeHtml(currentBucket)}"` : " in this index"}.</div>`;
+      docsHost.innerHTML = `<div class="empty-state">No documents${scopeLabel}.</div>`;
     } else {
       docsHost.innerHTML = res.documents.map(docCardHtml).join("");
       wireChunks(docsHost);  // reveal Expand toggles on any document body that overflows its clamp
     }
     const totalPages = Math.max(1, Math.ceil(res.total / PAGE_SIZE));
-    const scope = currentBucket ? ` · bucket "${currentBucket}"` : "";
+    const scope = (currentUnbucketed ? " · no bucket" : (currentBucket ? ` · bucket "${currentBucket}"` : ""))
+      + (currentFileName ? ` · file "${currentFileName}"` : "");
     pager.textContent = `page ${page + 1} / ${totalPages} · ${res.total} document(s) total${scope}`;
     document.getElementById("prev-page").disabled = page === 0;
     document.getElementById("next-page").disabled = page + 1 >= totalPages;
@@ -150,6 +188,8 @@ function selectIndex(view, host, index) {
   currentIndex = index;
   currentPage = 0;
   currentBucket = null;
+  currentUnbucketed = false;
+  currentFileName = null;
   markSelectedCard(host);
   loadBuckets(view, currentIndex);
   loadDocuments(view, currentIndex, currentPage);
@@ -187,7 +227,7 @@ async function buildCreateTab(view) {
   const host = document.getElementById("idx-create");
 
   let defaultStrategy = "sentence";
-  let embeddingChoices = { watsonx: [], fastembed: [], litellm: [], "litellm-watsonx": [], "litellm-ollama": [] };
+  let embeddingChoices = { watsonx: [], fastembed: [], litellm: [], "litellm-watsonx": [], "litellm-ollama": [], "litellm-openai": [], "litellm-openrouter": [] };
   let defaultEmbeddingProvider = "watsonx";
   let defaultModelByProvider = {};
   let vectorStore = "";
@@ -441,7 +481,7 @@ async function buildCreateTab(view) {
 }
 
 export async function render(view) {
-  currentIndex = null; currentPage = 0; currentBucket = null;
+  currentIndex = null; currentPage = 0; currentBucket = null; currentUnbucketed = false; currentFileName = null;
   view.innerHTML = `
     <h1 class="page-title">Indices</h1>
     <p class="page-sub">Create a new index from scratch, or explore what already exists across all vector stores.</p>
@@ -466,7 +506,7 @@ export async function render(view) {
 
       <div class="card">
         <h2 style="margin-top:0">Buckets</h2>
-        <p class="page-sub" style="margin-top:0">Select a 📦 bucket to see the 📄 documents it contains.</p>
+        <p class="page-sub" style="margin-top:0">Select a 📦 bucket to see the 📄 documents it contains. Documents ingested without a bucket appear under 📄 No bucket.</p>
         <div id="buckets-host" class="bucket-card-grid"></div>
         <div id="bucket-docs-host"></div>
       </div>

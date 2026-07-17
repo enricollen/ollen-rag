@@ -4,20 +4,27 @@
 Mirrors src/providers/llm/litellm.py. Ollama has no rerank endpoint, so there is no
 litellm-ollama connector here; use the local "sentence-transformers" provider instead.
 """
+import logging
 import os
+from functools import lru_cache
 from typing import Any
+import httpx
 
 # litellm's __init__ calls dotenv.load_dotenv() at import time whenever LITELLM_MODE is "DEV"
 # (its default), which would splice this project's whole .env -- OLLEN_RAG_WATSONX_APIKEY included --
 # into os.environ, leaking secrets to every subprocess and defeating Settings(_env_file=None) in
 # tests. Settings already owns .env loading, so opt out. Must precede the litellm import.
 os.environ.setdefault("LITELLM_MODE", "PRODUCTION")
+import src.providers.litellm_setup  # noqa: E402,F401  set litellm flags (silence "Provider List" banner) before litellm loads
 
 from litellm import rerank  # noqa: E402
+from litellm.llms.watsonx.common_utils import generate_iam_token  # noqa: E402
 from llama_index.core.schema import MetadataMode, NodeWithScore  # noqa: E402
 from src.exceptions import RerankError  # noqa: E402
 from src.factories.reranker import RerankConnector, RerankerFactory, to_probability  # noqa: E402
 from src.settings import Settings  # noqa: E402
+
+log = logging.getLogger(__name__)
 
 class BaseLiteLLMRerankConnector(RerankConnector):
     """Base connector: scores nodes through litellm.rerank(), which follows the Cohere contract.
@@ -94,6 +101,34 @@ class LiteLLMRerankConnector(BaseLiteLLMRerankConnector):
             kwargs["api_key"] = self._settings.effective_litellm_rerank_api_key
         return kwargs
 
+@lru_cache(maxsize=8)
+def _watsonx_max_sequence_length(api_base: str, api_key: str, model_id: str) -> int | None:
+    """This model's max_sequence_length (query+document combined) from watsonx's live
+    foundation_model_specs catalog -- the same limit every rerank model there declares (512 for
+    the current cross-encoder, but this varies by model, so it's looked up rather than hardcoded).
+
+    Cached for the process lifetime: the catalog only changes on IBM's release cadence, and a
+    lookup on every rerank call would double request latency for no benefit. Returns None on any
+    failure (network, auth, unknown model, catalog shape change) so the caller can fall back to a
+    conservative default instead of breaking rerank over a catalog hiccup.
+    """
+    try:
+        token = generate_iam_token(api_key)
+        resp = httpx.get(
+            f"{api_base}/ml/v1/foundation_model_specs",
+            params={"version": "2024-05-01", "limit": 200},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        for res in resp.json().get("resources", []):
+            if res.get("model_id") == model_id:
+                return res.get("model_limits", {}).get("max_sequence_length")
+        log.warning("watsonx rerank: model '%s' not found in foundation_model_specs catalog", model_id)
+    except Exception as exc:
+        log.warning("watsonx rerank: max_sequence_length lookup failed for '%s': %s", model_id, exc)
+    return None
+
 @RerankerFactory.register("litellm-watsonx", model_field="watsonx_reranker_model_id")
 class LiteLLMWatsonxRerankConnector(BaseLiteLLMRerankConnector):
     """watsonx.ai /ml/v1/text/rerank through LiteLLM, reading the same OLLEN_RAG_WATSONX_* block as
@@ -111,17 +146,34 @@ class LiteLLMWatsonxRerankConnector(BaseLiteLLMRerankConnector):
     """
     scores_are_logits = True
 
+    # Every watsonx rerank model errors instead of truncating when query+document exceeds its
+    # max_sequence_length, so a document budget must be sent on every call. _watsonx_max_sequence_length
+    # looks the real per-model limit up live; this is the fallback when that lookup fails, and the
+    # headroom reserved out of whatever limit *is* found for the query's own tokens.
+    _FALLBACK_MAX_TOKENS_PER_DOC = 400
+    _QUERY_TOKEN_HEADROOM = 100
+
     def __init__(self, settings: Settings | None = None) -> None:
         super().__init__(settings)
         if not self._settings.watsonx_project_id:
             raise ValueError("OLLEN_RAG_WATSONX_PROJECT_ID must be set when OLLEN_RAG_RERANKER_PROVIDER=litellm-watsonx")
         self.model_name = self._settings.watsonx_reranker_model_id
 
+    def _max_tokens_per_doc(self) -> int:
+        """Document token budget for truncate_input_tokens: the model's real max_sequence_length
+        (live-looked-up, per model) minus headroom for the query, or the fallback if that lookup fails."""
+        max_seq = _watsonx_max_sequence_length(self._settings.watsonx_url, self._settings.watsonx_apikey, self.model_name)
+        if max_seq is None:
+            return self._FALLBACK_MAX_TOKENS_PER_DOC
+        return max(1, max_seq - self._QUERY_TOKEN_HEADROOM)
+
     def _call_kwargs(self) -> dict[str, Any]:
-        """watsonx needs project_id alongside the key and endpoint; all three travel as kwargs."""
+        """watsonx needs project_id alongside the key and endpoint; all three travel as kwargs.
+        max_tokens_per_doc guards the model's combined query+document token limit (see _max_tokens_per_doc)."""
         return {
             "model": f"watsonx/{self.model_name}",
             "api_key": self._settings.watsonx_apikey,
             "api_base": self._settings.watsonx_url,
             "project_id": self._settings.watsonx_project_id,
+            "max_tokens_per_doc": self._max_tokens_per_doc(),
         }

@@ -11,6 +11,7 @@ def _llm_model(s: Settings) -> str:
     return {
         "watsonx": s.watsonx_llm_model_id, "litellm-watsonx": s.watsonx_llm_model_id,
         "litellm": s.litellm_model, "litellm-ollama": s.ollama_model,
+        "litellm-openai": s.openai_model, "litellm-openrouter": s.openrouter_model,
     }.get(s.llm_provider, "?")
 
 def component_summary(s: Settings) -> dict:

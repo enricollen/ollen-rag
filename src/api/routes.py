@@ -11,7 +11,9 @@ from src.config.writer import merge_into_env
 from src.factories.chunker import CHUNKING_STRATEGIES
 from src.factories.embeddings import EmbeddingFactory, load_embedding_model_choices
 from src.factories.vector_store import VectorStoreFactory, create_backend, embedding_meta
-from src.rag.evaluation import evaluate, load_dataset, parse_dataset
+from src.rag.evaluation import (
+    compare_runs, evaluate, evaluate_legs, list_runs, load_dataset, load_run, parse_dataset, save_run,
+)
 from src.rag.generation import generate
 from src.rag.ingestion import JOBS, create_job, run_ingestion_job
 from src.factories.reranker import RerankerFactory, load_reranker_model_choices
@@ -53,6 +55,16 @@ class EvalRequest(BaseModel):
     rerank_top_n: int | None = Field(default=None, ge=1, le=50)
     similarity_threshold: float | None = Field(default=None, ge=0, le=1)
     use_rerank: bool = True
+    # Per-leg attribution: score bm25/dense/hybrid/reranked separately instead of the whole pipeline
+    per_leg: bool = False
+    # Persist this run for later A/B comparison; label is an optional human tag
+    save: bool = False
+    label: str | None = None
+
+class CompareRequest(BaseModel):
+    """Two saved run ids to compare (paired delta + significance)."""
+    a: str
+    b: str
 
 def _raw_filters(request: RetrieveRequest) -> list[dict] | None:
     """Convert FilterSpec models into the plain dicts the rag layer consumes."""
@@ -196,6 +208,15 @@ def eval_retrieval(request: EvalRequest) -> dict:
             dataset = load_dataset(path)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    # Per-leg attribution returns its own shape (per_leg + rerank_lift); never persisted
+    if request.per_leg:
+        return evaluate_legs(
+            dataset,
+            top_k=request.top_k,
+            rerank_top_n=request.rerank_top_n,
+            similarity_threshold=request.similarity_threshold,
+            index_name=request.index_name,
+        )
     report = evaluate(
         dataset,
         top_k=request.top_k,
@@ -204,7 +225,40 @@ def eval_retrieval(request: EvalRequest) -> dict:
         use_rerank=request.use_rerank,
         index_name=request.index_name,
     )
-    return report.to_dict()
+    result = report.to_dict()
+    # Optionally persist for A/B; echo the assigned run id so the UI can offer it in comparisons
+    if request.save:
+        result["run_id"] = save_run(result, label=request.label, dataset=request.dataset)
+    return result
+
+# Run-id shape produced by save_run (timestamp + ms); also a path-traversal guard for loads
+_RUN_ID_RE = re.compile(r"[0-9A-Za-z_]+")
+
+@router.get("/api/v1/eval/runs")
+def eval_runs() -> dict:
+    """List saved eval runs (newest first) for the A/B comparison picker."""
+    return {"runs": list_runs()}
+
+@router.get("/api/v1/eval/runs/{run_id}")
+def eval_run(run_id: str) -> dict:
+    """Full saved record for one run id."""
+    if not _RUN_ID_RE.fullmatch(run_id):
+        raise HTTPException(status_code=422, detail="invalid run id")
+    record = load_run(run_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"run '{run_id}' not found")
+    return record
+
+@router.post("/api/v1/eval/compare")
+def eval_compare(request: CompareRequest) -> dict:
+    """Paired A/B comparison of two saved runs (mean metric delta + bootstrap CI + significance)."""
+    if not (_RUN_ID_RE.fullmatch(request.a) and _RUN_ID_RE.fullmatch(request.b)):
+        raise HTTPException(status_code=422, detail="invalid run id")
+    a, b = load_run(request.a), load_run(request.b)
+    if a is None or b is None:
+        missing = request.a if a is None else request.b
+        raise HTTPException(status_code=404, detail=f"run '{missing}' not found")
+    return compare_runs(a, b)
 
 @router.get("/api/v1/config")
 def config() -> dict:
@@ -320,9 +374,11 @@ def indices_overview() -> dict:
 
 @router.get("/api/v1/indices/{index_name}/documents")
 def index_documents(index_name: str, offset: int = Query(default=0, ge=0), limit: int = Query(default=20, ge=1, le=200),
-                    bucket: str | None = Query(default=None)) -> dict:
-    """Paginate raw stored documents (content + metadata) for browsing an index, optionally scoped to a bucket."""
-    return create_backend().get_index_documents(index_name, offset=offset, limit=limit, bucket=bucket)
+                    bucket: str | None = Query(default=None), unbucketed: bool = Query(default=False),
+                    file_name: str | None = Query(default=None)) -> dict:
+    """Paginate raw stored documents (content + metadata) for browsing an index, optionally scoped to a
+    bucket, (unbucketed=True) to documents that carry no bucket at all, and/or a single source file_name."""
+    return create_backend().get_index_documents(index_name, offset=offset, limit=limit, bucket=bucket, unbucketed=unbucketed, file_name=file_name)
 
 @router.get("/api/v1/indices/{index_name}/vectors")
 def index_vectors(index_name: str, limit: int = Query(default=2000, ge=2, le=10000)) -> dict:
@@ -374,6 +430,9 @@ def index_info(index_name: str) -> dict:
         "docs_count": docs_count,
         "buckets": backend.list_buckets(index_name),
         "bucket_files": backend.list_bucket_files(index_name),
+        # Files whose docs carry no bucket, so the UI can still show an index's containing
+        # documents when nothing was bucketed at ingest time.
+        "unbucketed_files": backend.list_unbucketed_files(index_name),
     }
 
 @router.get("/api/v1/indices/{index_name}/buckets")

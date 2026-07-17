@@ -207,6 +207,52 @@ details[open] > .eval-details-summary::before { transform: rotate(90deg); }
 .eval-node-text { font-size: .8rem; color: var(--text-dim); white-space: pre-wrap; line-height: 1.5; }
 .mono { font-family: ui-monospace, monospace; }
 
+/* Metric glossary — hidden by default, click the summary to reveal the grid */
+.metric-legend { border: 1px solid var(--card-border); border-radius: 10px; background: var(--bg-raised); margin: 0 0 1rem; overflow: hidden; }
+.metric-legend-summary { padding: .7rem 1rem; font-size: .85rem; font-weight: 600; color: var(--text); cursor: pointer; user-select: none; list-style: none; display: flex; align-items: center; gap: .5rem; }
+.metric-legend-summary::-webkit-details-marker { display: none; }
+.metric-legend-summary::before { content: "▶"; font-size: .65rem; color: var(--text-dim); transition: transform .15s; }
+.metric-legend[open] > .metric-legend-summary::before { transform: rotate(90deg); }
+.metric-legend[open] > .metric-legend-summary { border-bottom: 1px solid var(--card-border); }
+.metric-legend-summary .hint { margin-top: 0; font-weight: 400; }
+.metric-def-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: .75rem; padding: .9rem 1rem 1rem; }
+.metric-def { border-left: 2px solid var(--accent); padding: .1rem 0 .1rem .7rem; }
+.metric-def-name { font-size: .82rem; font-weight: 700; color: var(--accent-2); margin-bottom: .2rem; }
+.metric-def-long { font-size: .8rem; color: var(--text); line-height: 1.45; }
+.metric-def-ex { font-size: .76rem; color: var(--text-dim); line-height: 1.45; margin-top: .3rem; }
+.metric-def-ex-tag { font-weight: 700; color: var(--text-dim); text-transform: uppercase; font-size: .66rem; letter-spacing: .05em; margin-right: .25rem; }
+.eval-metric[title], .kv-row[title] { cursor: help; }
+
+/* Case details — whole list folded by default; expand/collapse-all for the per-case node panels */
+.eval-cases-fold { border: 1px solid var(--card-border); border-radius: 12px; overflow: hidden; }
+.eval-cases-fold-summary { padding: .85rem 1.1rem; cursor: pointer; user-select: none; list-style: none; display: flex; align-items: center; gap: .7rem; }
+.eval-cases-fold-summary::-webkit-details-marker { display: none; }
+.eval-cases-fold-summary::before { content: "▶"; font-size: .7rem; color: var(--text-dim); transition: transform .15s; }
+.eval-cases-fold[open] > .eval-cases-fold-summary::before { transform: rotate(90deg); }
+.eval-cases-fold[open] > .eval-cases-fold-summary { border-bottom: 1px solid var(--card-border); }
+.eval-cases-fold-title { font-size: 1.05rem; font-weight: 700; color: var(--text); }
+.eval-cases-fold-meta { font-size: .82rem; color: var(--text-dim); }
+.eval-cases-fold-cta { margin-top: 0; margin-left: auto; }
+.eval-cases-fold[open] > .eval-cases-fold-summary .eval-cases-fold-cta { visibility: hidden; }
+.eval-cases-toolbar { display: flex; align-items: center; gap: .5rem; padding: .7rem 1.1rem; border-bottom: 1px solid var(--card-border); }
+.eval-cases-toolbar .hint { margin-top: 0; }
+.eval-cases-toolbar .spacer { flex: 1; }
+.eval-cases-toolbar button { font-size: .76rem; padding: .3rem .6rem; }
+.eval-cases-list { padding: .9rem 1.1rem 1.1rem; }
+.eval-cases-list .eval-case-card:last-child { margin-bottom: 0; }
+
+/* A/B compare — two labelled run pickers with an arrow showing the delta direction (A → B) */
+.ab-compare { display: flex; align-items: stretch; gap: .75rem; flex-wrap: wrap; }
+.ab-side { flex: 1; min-width: 15rem; border: 1px solid var(--card-border); border-radius: 10px; padding: .7rem .85rem; background: var(--bg-raised); }
+.ab-side-a { border-left: 3px solid var(--text-dim); }
+.ab-side-b { border-left: 3px solid var(--accent); }
+.ab-side-label { font-size: .78rem; font-weight: 700; color: var(--text); margin-bottom: .5rem; display: flex; align-items: baseline; gap: .4rem; }
+.ab-side-label .hint { margin-top: 0; font-weight: 400; }
+.ab-side select { width: 100%; }
+.ab-side-meta { font-size: .78rem; color: var(--text-dim); margin-top: .45rem; min-height: 1.1rem; }
+.ab-side-meta .hint { margin-top: .15rem; }
+.ab-arrow { align-self: center; font-size: 1.3rem; color: var(--accent-2); font-weight: 700; flex-shrink: 0; }
+
 /* Result nodes */
 .result-node { background: var(--bg-raised); border: 1px solid var(--card-border); border-radius: 9px; padding: .9rem 1rem; margin-bottom: .75rem; }
 .result-node .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: .5rem; gap: 1rem; }
@@ -238,7 +284,9 @@ details[open] > .eval-details-summary::before { transform: rotate(90deg); }
 .bucket-del:hover { background: var(--bad); color: #fff; }
 .bucket-docs-title { margin-top: 1rem; font-weight: 600; font-size: .88rem; color: var(--text); }
 .bucket-docs-list { list-style: none; margin: .5rem 0 0; padding: 0; display: flex; flex-direction: column; gap: .3rem; }
-.bucket-doc-item { font-size: .84rem; color: var(--text-dim); background: var(--bg-raised); border: 1px solid var(--card-border); border-radius: 7px; padding: .4rem .7rem; }
+.bucket-doc-item { font-size: .84rem; color: var(--text-dim); background: var(--bg-raised); border: 1px solid var(--card-border); border-radius: 7px; padding: .4rem .7rem; cursor: pointer; transition: border-color .12s; }
+.bucket-doc-item:hover { border-color: var(--accent); }
+.bucket-doc-item.selected { border-color: var(--accent-2); box-shadow: inset 0 0 0 1px var(--accent-2); color: var(--text); }
 
 /* Job / status */
 .job-card { background: var(--bg-raised); border: 1px solid var(--card-border); border-radius: 9px; padding: .85rem 1rem; margin-bottom: .6rem; }

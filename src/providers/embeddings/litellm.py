@@ -14,6 +14,7 @@ from typing import Any
 # into os.environ, leaking secrets to every subprocess and defeating Settings(_env_file=None) in
 # tests. Settings already owns .env loading, so opt out. Must precede the litellm import.
 os.environ.setdefault("LITELLM_MODE", "PRODUCTION")
+import src.providers.litellm_setup  # noqa: E402,F401  set litellm flags (silence "Provider List" banner) before litellm loads
 
 from litellm import embedding  # noqa: E402
 from llama_index.core.base.embeddings.base import BaseEmbedding  # noqa: E402
@@ -124,6 +125,48 @@ def create_litellm_watsonx_embedding(settings: Settings) -> BaseEmbedding:
         "project_id": settings.watsonx_project_id,
     }
     return LiteLLMEmbedding(model_name=model, call_kwargs=call_kwargs)
+
+@EmbeddingFactory.register("litellm-openai", model_field="openai_embedding_model")
+def create_litellm_openai_embedding(settings: Settings) -> BaseEmbedding:
+    """OpenAI or any OpenAI-compatible embedding API through LiteLLM.
+
+    Uses the dedicated OLLEN_RAG_OPENAI_* settings. The bare model name is prefixed with
+    "openai/" unless already included. Setting OLLEN_RAG_OPENAI_API_BASE routes to any
+    OpenAI-compatible server (vLLM, LocalAI, …) instead of the official OpenAI endpoint.
+    """
+    if not settings.openai_embedding_model:
+        raise ValueError(
+            "OLLEN_RAG_OPENAI_EMBEDDING_MODEL must be set when OLLEN_RAG_EMBEDDING_PROVIDER=litellm-openai"
+        )
+    raw = settings.openai_embedding_model
+    model = raw if raw.startswith("openai/") else f"openai/{raw}"
+    call_kwargs = _optional(
+        {"model": model},
+        api_key=settings.openai_api_key,
+        api_base=settings.openai_api_base,
+    )
+    return LiteLLMEmbedding(model_name=raw, call_kwargs=call_kwargs)
+
+@EmbeddingFactory.register("litellm-openrouter", model_field="openrouter_embedding_model")
+def create_litellm_openrouter_embedding(settings: Settings) -> BaseEmbedding:
+    """OpenRouter embeddings through LiteLLM (vendor selection is scarce for embeddings on
+    OpenRouter, but the routing shape is identical to the other LiteLLM vendors).
+
+    Uses the dedicated OLLEN_RAG_OPENROUTER_* settings. The bare "<vendor>/<model>" tag is
+    prefixed with "openrouter/" unless already included.
+    """
+    if not settings.openrouter_embedding_model:
+        raise ValueError(
+            "OLLEN_RAG_OPENROUTER_EMBEDDING_MODEL must be set when OLLEN_RAG_EMBEDDING_PROVIDER=litellm-openrouter"
+        )
+    raw = settings.openrouter_embedding_model
+    model = raw if raw.startswith("openrouter/") else f"openrouter/{raw}"
+    call_kwargs = _optional(
+        {"model": model},
+        api_key=settings.openrouter_api_key,
+        api_base=settings.openrouter_api_base,
+    )
+    return LiteLLMEmbedding(model_name=raw, call_kwargs=call_kwargs)
 
 @EmbeddingFactory.register("litellm-ollama", model_field="ollama_embedding_model")
 def create_litellm_ollama_embedding(settings: Settings) -> BaseEmbedding:

@@ -187,6 +187,7 @@ def ingest_document(
             f"produces {embed_dim}-dim — pick a different index_name or a matching embed model"
         )
     backend.ensure_ready(target_index, embed_dim)
+    log.debug("index ready: %s (%d-dim, embed=%s/%s)", target_index, embed_dim, settings.embedding_provider, resolved_model)
     # IngestionPipeline runs chunking (+ optional keyword enrichment) + embedding, producing
     # embedded nodes; the backend then writes them (no vector_store sink on the pipeline).
     transformations: list = [node_parser]
@@ -194,9 +195,13 @@ def ingest_document(
         transformations.append(KeywordEnricher(llm=llm, prompt=load_prompt("keywords", settings), progress_cb=_enrich_progress))
     transformations.append(embed_model)
     pipeline = IngestionPipeline(transformations=transformations)
+    pipeline_started = time.perf_counter()
     nodes = pipeline.run(documents=documents)
+    log.debug("chunk+%sembed done: %d node(s) (%.1fs)", "enrich+" if enrich else "", len(nodes), time.perf_counter() - pipeline_started)
+    store_started = time.perf_counter()
     backend.add_nodes(target_index, nodes)
     backend.set_index_meta(target_index, settings.embedding_provider, resolved_model, chunking)
+    log.debug("stored %d node(s) -> %s (%.1fs)", len(nodes), target_index, time.perf_counter() - store_started)
     log.info("ingest done: %d chunk(s) -> %s in %.1fs", len(nodes), target_index, time.perf_counter() - started)
     return {
         "index": target_index,

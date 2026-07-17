@@ -2,12 +2,12 @@
 // bucket or by source document (toggle), with a hover tooltip showing the chunk's truncated
 // text and basic stats. Read-only — no writes. Lazily built the first time the Visualizer tab
 // is opened (see indices.js).
-import { api, errorMessage, escapeHtml } from "../lib.js";
+import { api, errorMessage, escapeHtml, CHART_PALETTE } from "../lib.js";
 
-// Categorical palette (dataviz skill's validated dark-mode steps — this UI is dark-only, no
-// prefers-color-scheme toggle in styles.css). Fixed order, never cycled: groups beyond the
-// 8th fold into a shared "Other" slot rather than repeating a hue (color must follow entity).
-const PALETTE = ["#3987e5", "#199e70", "#c98500", "#008300", "#9085e9", "#e66767", "#d55181", "#d95926"];
+// Categorical palette shared with every chart (dataviz skill's validated dark-mode steps — this
+// UI is dark-only). Fixed order, never cycled: groups beyond the 8th fold into a shared "Other"
+// slot rather than repeating a hue (color must follow entity).
+const PALETTE = CHART_PALETTE;
 const NO_VALUE_COLOR = "#898781"; // dataviz skill's "muted (axis/labels)" dark-mode ink
 const OTHER_COLOR = "#5c6479"; // this UI's --text-faint — distinct from both the palette and no-value gray
 

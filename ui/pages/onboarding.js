@@ -7,7 +7,9 @@ import { api, toast, errorMessage } from "../lib.js";
 const LLM_CHOICES = [
   { id: "litellm-ollama", label: "Local (Ollama) — no key, runs here", fields: [] },
   { id: "watsonx", label: "watsonx.ai", fields: ["watsonx_url", "watsonx_apikey", "watsonx_project_id"] },
-  { id: "litellm", label: "OpenAI / other (LiteLLM)", fields: ["litellm_model", "litellm_api_key", "litellm_api_base"] },
+  { id: "litellm-openai", label: "OpenAI", fields: ["openai_model", "openai_api_key"] },
+  { id: "litellm-openrouter", label: "OpenRouter", fields: ["openrouter_model", "openrouter_api_key"] },
+  { id: "litellm", label: "Other (LiteLLM)", fields: ["litellm_model", "litellm_api_key", "litellm_api_base"] },
 ];
 
 // Renders the wizard into `view`. Same signature as every other page module.

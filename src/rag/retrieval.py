@@ -1,5 +1,6 @@
 """Hybrid retrieval through the configured vector store backend, with metadata filters,
 fused-score floor, and cross-encoder reranking."""
+from time import perf_counter
 from llama_index.core.postprocessor import SimilarityPostprocessor
 from llama_index.core.retrievers import BaseRetriever
 from llama_index.core.schema import NodeWithScore, QueryBundle
@@ -9,7 +10,7 @@ from src.factories.reranker import create_reranker
 from src.factories.vector_store import (
     QueryMode, build_index_name, create_backend, embedding_meta, pick_supported_mode,
 )
-from src.logger import OllenLogger
+from src.logger import OllenLogger, preview
 from src.settings import get_settings
 
 log = OllenLogger("retrieval")
@@ -31,10 +32,17 @@ def _resolve_embed_settings(settings, index: str, backend):
 
 def _query_nodes(backend, index, query, mode, top_k, raw_filters, filter_condition, settings):
     """Embed the query with the index's model and run one backend retrieve in *mode* (with fallback)."""
+    started = perf_counter()
     embed_model = create_embedding_model(settings)
     query_embedding = embed_model.get_query_embedding(query)
+    log.debug("embedded query -> %d-dim vector (%s/%s)", len(query_embedding), settings.embedding_provider, EmbeddingFactory.resolve_model(settings))
     effective_mode = pick_supported_mode(backend, mode)
-    return backend.retrieve(index, query, query_embedding, effective_mode, top_k, raw_filters, filter_condition)
+    if effective_mode != mode:
+        # Backend can't serve the requested mode; log the substitution so silent downgrades are visible
+        log.debug("mode %s unsupported by backend, falling back to %s", mode.value, effective_mode.value)
+    hits = backend.retrieve(index, query, query_embedding, effective_mode, top_k, raw_filters, filter_condition)
+    log.debug("backend retrieve mode=%s top_k=%d -> %d hit(s) (%.2fs)", effective_mode.value, top_k, len(hits), perf_counter() - started)
+    return hits
 
 class BackendRetriever(BaseRetriever):
     """llamaindex retriever adapter that runs a hybrid query through a VectorStoreBackend.
@@ -95,11 +103,13 @@ def retrieve(
     Reranked node scores are 0-1 relevance probabilities (see RerankConnector's contract), not the
     fused hybrid scores the threshold operates on.
     """
+    started = perf_counter()
     settings = get_settings()
     backend = create_backend(settings)
     target_index = build_index_name(strategy, index_name, settings)
     k = top_k or settings.retrieval_top_k
     settings = _resolve_embed_settings(settings, target_index, backend)
+    log.debug("retrieve start: query=%r index=%s top_k=%d filters=%d rerank=%s", preview(query), target_index, k, len(raw_filters or []), use_rerank)
     try:
         nodes = _query_nodes(backend, target_index, query, QueryMode.HYBRID, k, raw_filters, filter_condition, settings)
     except VectorStoreError:
@@ -107,7 +117,7 @@ def retrieve(
     except Exception as exc:
         raise VectorStoreError(f"Retrieval failed on index '{target_index}': {exc}") from exc
     if not nodes:
-        log.info("retrieve: index=%s top_k=%d filters=%d -> 0 node(s)", target_index, k, len(raw_filters or []))
+        log.info("retrieve: index=%s top_k=%d filters=%d -> 0 node(s) (%.2fs)", target_index, k, len(raw_filters or []), perf_counter() - started)
         return []
     thresholder = get_threshold_postprocessor(similarity_threshold)
     if thresholder is not None:
@@ -115,11 +125,13 @@ def retrieve(
         before_count = len(nodes)
         nodes = thresholder.postprocess_nodes(nodes)
         if len(nodes) < before_count:
-            log.debug("threshold cut %d node(s)", before_count - len(nodes))
+            log.debug("threshold cut %d/%d node(s)", before_count - len(nodes), before_count)
     if nodes and use_rerank:
+        before_rerank = len(nodes)
         nodes = create_reranker(rerank_top_n, reranker_provider, reranker_model).postprocess_nodes(nodes, query_str=query)
+        log.debug("reranked %d -> %d node(s) (top score %.3f)", before_rerank, len(nodes), nodes[0].score if nodes and nodes[0].score is not None else float("nan"))
     # use_rerank=False: eval harness measures the raw fused ranking without the cross-encoder
-    log.info("retrieve: index=%s top_k=%d filters=%d -> %d node(s)", target_index, k, len(raw_filters or []), len(nodes))
+    log.info("retrieve: index=%s top_k=%d filters=%d -> %d node(s) (%.2fs)", target_index, k, len(raw_filters or []), len(nodes), perf_counter() - started)
     return nodes
 
 def retrieve_debug(
