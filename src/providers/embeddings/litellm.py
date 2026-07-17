@@ -14,6 +14,7 @@ from typing import Any
 # into os.environ, leaking secrets to every subprocess and defeating Settings(_env_file=None) in
 # tests. Settings already owns .env loading, so opt out. Must precede the litellm import.
 os.environ.setdefault("LITELLM_MODE", "PRODUCTION")
+import src.providers.litellm_setup  # noqa: E402,F401  set litellm flags (silence "Provider List" banner) before litellm loads
 
 from litellm import embedding  # noqa: E402
 from llama_index.core.base.embeddings.base import BaseEmbedding  # noqa: E402

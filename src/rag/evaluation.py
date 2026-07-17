@@ -14,8 +14,13 @@ from pathlib import Path
 import yaml
 from llama_index.core.schema import NodeWithScore
 from src.factories.vector_store import build_index_name, create_backend
+from src.logger import OllenLogger, preview
 from src.rag.retrieval import retrieve, retrieve_debug
 from src.settings import get_settings
+
+# Progress logger: an eval walks the whole dataset one case at a time, so it narrates each stage
+# (start → per-case hit/miss → aggregation → done) to make a long run legible in the console.
+logger = OllenLogger("eval")
 
 # Rank cutoffs reported as recall@k / precision@k / nDCG@k curves. PRIMARY_K is the single cutoff
 # the scalar "ndcg" summarizes. BOOTSTRAP_ITERS/SEED fix the resampling so a run is reproducible.
@@ -366,8 +371,11 @@ def evaluate(
     reranker_provider/reranker_model select the reranker for this run (None = the configured
     default), which is what makes two runs over the same dataset a like-for-like comparison.
     Reported scores are 0-1 relevance probabilities; ranking metrics are scale-invariant."""
+    total = len(dataset.cases)
+    logger.info("▶ eval starting · %d cases · index=%s · rerank=%s",
+                total, index_name or "per-case", "on" if use_rerank else "off")
     results = []
-    for case in dataset.cases:
+    for i, case in enumerate(dataset.cases, start=1):
         started = time.perf_counter()
         nodes = retrieve(
             case.query,
@@ -382,7 +390,15 @@ def evaluate(
             reranker_model=reranker_model,
         )
         latency_ms = (time.perf_counter() - started) * 1000
-        results.append(_score_case(case, nodes, latency_ms))
+        result = _score_case(case, nodes, latency_ms)
+        results.append(result)
+        logger.info("  [%d/%d] %-4s %d/%d matched · %4.0fms · %s",
+                    i, total, "HIT" if result.hit else "MISS",
+                    result.matched, result.expected, latency_ms, preview(case.query, 60))
+    hits = sum(1 for r in results if r.hit)
+    mean_latency = sum(r.latency_ms for r in results) / total if total else 0.0
+    logger.info("■ eval done · %d/%d hits · mean %.0fms · aggregating metrics…",
+                hits, total, mean_latency)
     settings = get_settings()
     params = {
         "top_k": top_k, "rerank_top_n": rerank_top_n,
@@ -408,8 +424,11 @@ def evaluate_legs(
     the cross-encoder contribute. Returns per-leg aggregates plus rerank_lift = reranked - hybrid
     on the scalar metrics. Per-leg latency is not measured (one retrieve_debug call serves every
     leg), so latency fields read 0 here."""
+    total = len(dataset.cases)
+    logger.info("▶ per-leg eval starting · %d cases · index=%s · legs=%s",
+                total, index_name or "per-case", "/".join(LEGS))
     per_leg_results: dict[str, list[CaseResult]] = {leg: [] for leg in LEGS}
-    for case in dataset.cases:
+    for i, case in enumerate(dataset.cases, start=1):
         debug = retrieve_debug(
             case.query,
             strategy=None if index_name else case.strategy,
@@ -420,6 +439,8 @@ def evaluate_legs(
         )
         for leg in LEGS:
             per_leg_results[leg].append(_score_case(case, debug.get(leg, []), 0.0))
+        logger.info("  [%d/%d] scored all legs · %s", i, total, preview(case.query, 60))
+    logger.info("■ per-leg eval done · aggregating metrics…")
     per_leg = {leg: EvalReport(res).to_dict() for leg, res in per_leg_results.items()}
     rerank_lift = {
         m: round(per_leg["reranked"]["overall"][m] - per_leg["hybrid"]["overall"][m], 4)
