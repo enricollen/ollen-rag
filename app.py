@@ -1,4 +1,5 @@
 """Service entrypoint: FastAPI app with the FastMCP server mounted at /mcp."""
+import logging
 from contextlib import asynccontextmanager
 from time import perf_counter
 from fastapi import FastAPI, Request
@@ -14,6 +15,17 @@ from src.factories.reranker import create_reranker
 from src.settings import get_settings
 
 logger = OllenLogger("app")
+
+
+class _QuietPollFilter(logging.Filter):
+    """Drop uvicorn access-log lines for high-frequency liveness/status polls. The UI hits /health
+    every 15s and the onboarding status endpoint on every page load, so their access lines bury the
+    requests that matter (ingestion, retrieval, eval). Real endpoints stay logged."""
+    _QUIET = ("/health", "/api/v1/onboarding/status")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        return not any(path in message for path in self._QUIET)
 
 @asynccontextmanager
 async def app_lifespan(app: FastAPI):
@@ -40,6 +52,8 @@ async def app_lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     """Assemble the FastAPI application: REST routes, error handlers, mounted MCP server."""
     OllenLogger.setup(get_settings())
+    # Silence the repetitive /health + status polls in uvicorn's access log (real requests stay).
+    logging.getLogger("uvicorn.access").addFilter(_QuietPollFilter())
     s = get_settings()
     # Show the logo first, then the resolved config line below it, as the boot header.
     OllenLogger.banner(f"v0.1.0 · log level {s.log_level.upper()}")

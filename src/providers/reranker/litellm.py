@@ -15,6 +15,7 @@ import httpx
 # into os.environ, leaking secrets to every subprocess and defeating Settings(_env_file=None) in
 # tests. Settings already owns .env loading, so opt out. Must precede the litellm import.
 os.environ.setdefault("LITELLM_MODE", "PRODUCTION")
+import src.providers.litellm_setup  # noqa: E402,F401  set litellm flags (silence "Provider List" banner) before litellm loads
 
 from litellm import rerank  # noqa: E402
 from litellm.llms.watsonx.common_utils import generate_iam_token  # noqa: E402
