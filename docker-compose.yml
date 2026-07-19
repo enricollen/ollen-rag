@@ -1,11 +1,18 @@
-# docker-compose.yml — turnkey local stack. `docker compose up` = service + Ollama + on-disk Chroma,
-# no API keys. Add OpenSearch with: `docker compose --profile opensearch up`.
+# docker-compose.yml — turnkey local stack. `docker compose pull && docker compose up` = service +
+# Ollama + on-disk Chroma, no API keys, no local build (pulls the published CPU image). Add
+# OpenSearch with: `docker compose --profile opensearch up`.
 services:
   ollen-rag:
+    # Published CPU image (see .github/workflows/docker-publish.yml); `docker compose pull` fetches
+    # it so `up` skips the ~15-20min local build. Pin a release instead of tracking latest with
+    # OLLEN_RAG_IMAGE_TAG=v1.2.3 docker compose pull.
+    image: ghcr.io/enricollen/ollen-rag:${OLLEN_RAG_IMAGE_TAG:-latest}
+    # `build:` stays so `docker compose up --build` (needed for TORCH_FLAVOR=gpu, since only the
+    # CPU flavor is published) still works without editing this file.
     build:
       context: .
       args:
-        # cpu (default, ~5-6GB smaller) or gpu. Override: `TORCH_FLAVOR=gpu docker compose build`.
+        # cpu (default, ~5-6GB smaller) or gpu. Override: `TORCH_FLAVOR=gpu docker compose up --build`.
         TORCH_FLAVOR: ${TORCH_FLAVOR:-cpu}
     restart: unless-stopped          # config-apply uses OLLEN_RAG_RESTART_MODE=exit -> policy reboots
     # For GPU inference: build with TORCH_FLAVOR=gpu and uncomment the reservation below (needs the
