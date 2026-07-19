@@ -47,6 +47,7 @@ cp .env.example .env   # then fill in credentials
 ### Docker (turnkey — recommended for a first look)
 
 ```bash
+docker compose pull   # fetch the published CPU image instead of building it (seconds, not ~15-20min)
 docker compose up
 ```
 
@@ -54,6 +55,13 @@ Brings up the service + a bundled Ollama + on-disk Chroma — **no API keys**. O
 `http://localhost:8000/ui/`; a first-run wizard walks you through picking a provider and (for cloud
 providers) entering credentials, testing them, and saving. Config persists on a volume. Add
 OpenSearch with `docker compose --profile opensearch up`.
+
+The `ollen-rag` image is published to `ghcr.io/enricollen/ollen-rag` on every push to `main`/`develop`
+(`:latest`/`:develop`, amd64 only) and on version tags (`:v1.2.3`, amd64+arm64) — see
+`.github/workflows/docker-publish.yml`. Pin a specific release instead of tracking `latest` with
+`OLLEN_RAG_IMAGE_TAG=v1.2.3 docker compose pull`. If you'd rather build it yourself (e.g. to change
+`TORCH_FLAVOR`, or before the first image has published), `docker compose up --build` still works
+exactly as before — `pull` is purely an optional shortcut.
 
 The image ships a **CPU-only** torch build by default (keeps it ~5–6 GB smaller). For GPU inference
 of the local cross-encoder reranker, build with the CUDA wheel and expose the GPU:
