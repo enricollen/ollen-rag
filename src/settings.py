@@ -58,9 +58,11 @@ class Settings(BaseSettings):
     ollama_api_base: str = "http://localhost:11434"
     ollama_model: str = "llama3.1"
     ollama_embedding_model: str = "nomic-embed-text"
-    # provider selection
-    embedding_provider: str = "watsonx"  # watsonx | fastembed | litellm | litellm-watsonx | litellm-ollama | litellm-openai | litellm-openrouter
-    llm_provider: str = "watsonx"  # watsonx | litellm | litellm-watsonx | litellm-ollama | litellm-openai | litellm-openrouter
+    # provider selection: empty until explicitly chosen (wizard or env var) -- no vendor is
+    # silently assumed, so a fresh deploy fails loudly ("no provider configured") instead of
+    # quietly defaulting to a cloud vendor nobody picked and failing deep inside its SDK.
+    embedding_provider: str = ""  # watsonx | fastembed | litellm | litellm-watsonx | litellm-ollama | litellm-openai | litellm-openrouter
+    llm_provider: str = ""  # watsonx | litellm | litellm-watsonx | litellm-ollama | litellm-openai | litellm-openrouter
     fastembed_model_name: str = "BAAI/bge-small-en-v1.5"
     # Local cache for fastembed ONNX model files; persists downloads so the model is fetched from
     # the hub once, then reused offline. A relative path valid in both Docker (writable /app) and a

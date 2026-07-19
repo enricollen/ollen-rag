@@ -8,7 +8,16 @@ from src.settings import get_settings
 
 @pytest.fixture(autouse=True)
 def clean_settings(monkeypatch):
-    """Force offline-safe defaults and clear the singleton before/after each test."""
+    """Force offline-safe defaults and clear the singleton before/after each test.
+
+    llm_provider/embedding_provider default to "" in Settings (nothing is assumed until the
+    wizard or an env var picks it), so tests going through get_settings() need an explicit,
+    fixture-owned choice rather than inheriting whatever the old implicit default happened to be.
+    watsonx is picked here only because it is what the rest of this fixture already fakes
+    credentials for; it carries no significance beyond that.
+    """
+    monkeypatch.setenv("OLLEN_RAG_LLM_PROVIDER", "watsonx")
+    monkeypatch.setenv("OLLEN_RAG_EMBEDDING_PROVIDER", "watsonx")
     monkeypatch.setenv("OLLEN_RAG_WATSONX_APIKEY", "test-key")
     monkeypatch.setenv("OLLEN_RAG_WATSONX_PROJECT_ID", "test-project")
     get_settings.cache_clear()
