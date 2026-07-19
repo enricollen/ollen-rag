@@ -92,6 +92,8 @@ class RerankerFactory:
     def ensure_registered(cls, provider: str) -> None:
         """Raise if *provider* was never registered. The registry -- not the yaml catalog -- is the
         source of truth for which providers exist, so request handlers validate names against it."""
+        if not provider:
+            raise ValueError("No reranker provider configured. Finish setup at /ui/, or set OLLEN_RAG_RERANKER_PROVIDER.")
         if provider not in cls._registry:
             raise ValueError(f"Unknown reranker provider '{provider}'. Available providers: {sorted(cls._registry)}")
 

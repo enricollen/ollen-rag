@@ -18,6 +18,11 @@ services:
     #           count: all
     #           capabilities: [gpu]
     environment:
+      # Infra wiring only -- where Ollama/Chroma live, not a provider choice. LLM/embedding
+      # provider are intentionally left unset here: they default to "" (src/settings.py), so
+      # /api/v1/onboarding/status reports not-configured and the wizard at /ui/ (or your own
+      # OLLEN_RAG_LLM_PROVIDER / OLLEN_RAG_EMBEDDING_PROVIDER env vars, for headless deploys)
+      # is what actually turns this stack on.
       - OLLEN_RAG_VECTOR_STORE=chroma
       - OLLEN_RAG_CHROMA_PATH=/app/data/chroma
       - OLLEN_RAG_OLLAMA_API_BASE=http://ollama:11434

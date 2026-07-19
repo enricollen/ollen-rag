@@ -12,9 +12,19 @@ def test_is_configured_false_on_empty_watsonx():
     assert is_configured(s) is False
 
 def test_is_configured_true_for_ollama():
-    """Local Ollama needs no credentials, so a fresh install with it selected is 'configured'."""
-    s = Settings(_env_file=None, llm_provider="litellm-ollama")
+    """Local Ollama + fastembed need no credentials, so a fresh install with both selected is
+    'configured'."""
+    s = Settings(_env_file=None, llm_provider="litellm-ollama", embedding_provider="fastembed")
     assert is_configured(s) is True
+
+def test_is_configured_false_when_embedding_provider_unset():
+    """A keyless, working LLM is not enough on its own: an unset (or unconfigured) embedding
+    provider must still block 'configured', or ingestion silently fails against whatever the
+    embedding default happens to be."""
+    s = Settings(_env_file=None, llm_provider="litellm-ollama", embedding_provider="")
+    assert is_configured(s) is False
+    s = Settings(_env_file=None, llm_provider="litellm-ollama", embedding_provider="litellm-openai")
+    assert is_configured(s) is False
 
 def test_status_endpoint_shape():
     resp = client.get("/api/v1/onboarding/status")

@@ -16,6 +16,7 @@ from src.rag.evaluation import (
 )
 from src.rag.generation import generate
 from src.rag.ingestion import JOBS, create_job, run_ingestion_job
+from src.rag.onboarding import is_configured
 from src.factories.reranker import RerankerFactory, load_reranker_model_choices
 from src.rag.retrieval import retrieve, retrieve_debug
 from src.rag.visualize import project_2d
@@ -74,8 +75,19 @@ def _raw_filters(request: RetrieveRequest) -> list[dict] | None:
 
 @router.get("/health")
 def health() -> dict:
-    """Liveness/readiness probe endpoint."""
+    """Liveness probe: true once the process is up, independent of whether setup has been
+    completed. Orchestrators should key restart decisions off this, and traffic-gating decisions
+    off /ready instead -- an unconfigured container is alive, just not yet usable."""
     return {"status": "ok"}
+
+@router.get("/ready")
+def ready() -> dict:
+    """Readiness probe: true only once a working LLM + embedding provider are both configured, i.e.
+    the RAG pipeline can actually serve a request. Separate from /health so a freshly-started
+    container awaiting first-run setup reads as "not ready" rather than "unhealthy"."""
+    if is_configured(get_settings()):
+        return {"status": "ready"}
+    raise HTTPException(status_code=503, detail="Not configured yet -- finish setup at /ui/ or set the provider env vars.")
 
 @router.get("/api/v1/strategies")
 def strategies() -> dict:

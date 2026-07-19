@@ -75,7 +75,7 @@ def test_connector_llm_delegates_to_any_connector():
     assert llm.metadata.is_chat_model is True
 
 def test_create_llm_wires_watsonx_connector():
-    s = Settings(_env_file=None, watsonx_apikey="k", watsonx_project_id="p")
+    s = Settings(_env_file=None, llm_provider="watsonx", watsonx_apikey="k", watsonx_project_id="p")
     model = llm_mod.create_llm(s)
     assert isinstance(model, llm_mod.ConnectorLLM)
     assert isinstance(model.connector, wx_mod.WatsonxConnector)
