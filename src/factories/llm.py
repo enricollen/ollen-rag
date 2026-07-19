@@ -43,6 +43,8 @@ class LLMConnectorFactory:
     @classmethod
     def create(cls, provider: str, **kwargs: Any) -> LLMConnector:
         """Instantiate the connector for *provider*, or raise listing known providers."""
+        if not provider:
+            raise ValueError("No LLM provider configured. Finish setup at /ui/, or set OLLEN_RAG_LLM_PROVIDER.")
         if provider not in cls._registry:
             raise ValueError(f"Unknown LLM provider '{provider}'. Available providers: {sorted(cls._registry)}")
         return cls._registry[provider](**kwargs)

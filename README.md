@@ -44,16 +44,31 @@ cp .env.example .env   # then fill in credentials
 
 ## Run
 
+Both ways of running the service below share the same code, the same first-run wizard, and the
+same config contract: `OLLEN_RAG_LLM_PROVIDER` and `OLLEN_RAG_EMBEDDING_PROVIDER` default to empty
+— no vendor is chosen until you pick one, whether that's through the wizard at `/ui/` or, for
+headless/CI/production runs that never touch a browser, by setting those two env vars (plus their
+credentials) directly. `GET /ready` reflects that state (`503` until both are set); `GET /health`
+stays `200` the whole time, since the process itself is fine and just waiting on setup.
+
 ### Docker (turnkey — recommended for a first look)
 
 ```bash
+docker compose pull   # fetch the published CPU image instead of building it (seconds, not ~15-20min)
 docker compose up
 ```
 
-Brings up the service + a bundled Ollama + on-disk Chroma — **no API keys**. Open
+Brings up the service + a bundled Ollama + on-disk Chroma — **no API keys required to build**. Open
 `http://localhost:8000/ui/`; a first-run wizard walks you through picking a provider and (for cloud
 providers) entering credentials, testing them, and saving. Config persists on a volume. Add
 OpenSearch with `docker compose --profile opensearch up`.
+
+The `ollen-rag` image is published to `ghcr.io/enricollen/ollen-rag` on every push to `main`/`develop`
+(`:latest`/`:develop`, amd64 only) and on version tags (`:v1.2.3`, amd64+arm64) — see
+`.github/workflows/docker-publish.yml`. Pin a specific release instead of tracking `latest` with
+`OLLEN_RAG_IMAGE_TAG=v1.2.3 docker compose pull`. If you'd rather build it yourself (e.g. to change
+`TORCH_FLAVOR`, or before the first image has published), `docker compose up --build` still works
+exactly as before — `pull` is purely an optional shortcut.
 
 The image ships a **CPU-only** torch build by default (keeps it ~5–6 GB smaller). For GPU inference
 of the local cross-encoder reranker, build with the CUDA wheel and expose the GPU:
@@ -98,7 +113,8 @@ A single-page console is served at `http://localhost:8000/ui/`. An **Active Conf
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/health` | Liveness/readiness probe |
+| GET | `/health` | Liveness probe — 200 once the process is up, regardless of setup state |
+| GET | `/ready` | Readiness probe — 200 once an LLM + embedding provider are configured, 503 otherwise |
 | GET | `/api/v1/strategies` | List available chunking strategies |
 | POST | `/api/v1/ingest` | Upload a document, start an async ingestion job (returns `job_id`, HTTP 202) |
 | GET | `/api/v1/ingest/{job_id}` | Poll ingestion job status/result |

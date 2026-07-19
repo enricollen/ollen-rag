@@ -1,11 +1,19 @@
 """Tests for the central Settings object and its env override behaviour."""
 from src.settings import Settings, get_settings
 
-def test_settings_defaults():
-    """Defaults must allow offline construction with no env vars set."""
+def test_settings_defaults(monkeypatch):
+    """Defaults must allow offline construction with no env vars set.
+
+    _env_file=None only disables the .env source; the conftest fixture's provider env vars are a
+    real source and outrank the class default, so they must be cleared here to see it.
+    """
+    monkeypatch.delenv("OLLEN_RAG_LLM_PROVIDER", raising=False)
+    monkeypatch.delenv("OLLEN_RAG_EMBEDDING_PROVIDER", raising=False)
     s = Settings(_env_file=None)
-    assert s.embedding_provider == "watsonx"
-    assert s.llm_provider == "watsonx"
+    # No vendor is assumed until explicitly chosen (wizard or env var) -- an empty install must
+    # not silently behave as if watsonx had been picked.
+    assert s.embedding_provider == ""
+    assert s.llm_provider == ""
     assert s.default_chunking_strategy == "sentence"
     assert s.hybrid_dense_weight == 0.7
     # Multilingual by default: the English-only ms-marco cross-encoder measurably degrades

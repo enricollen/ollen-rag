@@ -47,6 +47,12 @@ async def app_lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("could not pre-load reranker at startup: %s", exc)
     logger.info("startup complete — ready to serve")
+    from src.rag.onboarding import is_configured
+    if is_configured(get_settings()):
+        logger.info("console: http://localhost:8000/ui/")
+    else:
+        logger.info("setup required — open http://localhost:8000/ui/ to pick a provider, or set "
+                     "OLLEN_RAG_LLM_PROVIDER / OLLEN_RAG_EMBEDDING_PROVIDER and restart")
     yield
 
 def create_app() -> FastAPI:
