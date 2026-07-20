@@ -9,17 +9,19 @@ A provider-agnostic RAG (Retrieval-Augmented Generation) microservice. It ingest
 
 ## Architecture
 
-A FastAPI application (`app.py`) with a FastMCP server mounted at `/mcp`, organized around the three RAG phases:
+The repo is split into `backend/` (FastAPI / RAG) and `frontend/` (React console). A FastAPI
+application (`backend/app.py`) with a FastMCP server mounted at `/mcp`, organized around the three
+RAG phases:
 
-1. **Ingestion** (`src/rag/ingestion.py`) — documents are parsed with `liteparse` (LibreOffice/ImageMagick cover Office and image formats), chunked by a configurable strategy, embedded, and written to the active vector store. Each strategy writes to its own index (named after the strategy by default). REST ingestion runs as an async background job.
-2. **Retrieval** (`src/rag/retrieval.py`) — hybrid search (BM25 + dense vectors) with optional metadata filters, followed by reranking. Reranked scores are normalized to 0–1 relevance probabilities inside each connector, so providers are swappable without rescaling anything downstream.
-3. **Generation** (`src/rag/generation.py`) — reranked chunks are passed to the LLM with a YAML prompt template (`config/prompts/`); the answer carries numbered `[n]` citations mapping to `sources[]`.
+1. **Ingestion** (`backend/src/rag/ingestion.py`) — documents are parsed with `liteparse` (LibreOffice/ImageMagick cover Office and image formats), chunked by a configurable strategy, embedded, and written to the active vector store. Each strategy writes to its own index (named after the strategy by default). REST ingestion runs as an async background job.
+2. **Retrieval** (`backend/src/rag/retrieval.py`) — hybrid search (BM25 + dense vectors) with optional metadata filters, followed by reranking. Reranked scores are normalized to 0–1 relevance probabilities inside each connector, so providers are swappable without rescaling anything downstream.
+3. **Generation** (`backend/src/rag/generation.py`) — reranked chunks are passed to the LLM with a YAML prompt template (`backend/config/prompts/`); the answer carries numbered `[n]` citations mapping to `sources[]`.
 
 Each phase picks its provider independently — e.g. watsonx generation with local Ollama embeddings and a local cross-encoder reranker.
 
 ### Provider registry
 
-Everything pluggable follows one decorator-registry pattern: a factory in `src/factories/` defines the interface, concrete providers in `src/providers/<capability>/` self-register on import. Providers are grouped by capability:
+Everything pluggable follows one decorator-registry pattern: a factory in `backend/src/factories/` defines the interface, concrete providers in `backend/src/providers/<capability>/` self-register on import. Providers are grouped by capability:
 
 | Capability | Factory | Providers |
 |------------|---------|-----------|
@@ -30,16 +32,17 @@ Everything pluggable follows one decorator-registry pattern: a factory in `src/f
 
 The `VectorStoreBackend` interface (`src/factories/vector_store.py`) is the parity contract: every method is `@abstractmethod`, so a new backend must implement the full surface (retrieval, index/bucket admin, dedup, lifecycle) before it can instantiate. Backends declare their `supported_query_modes`; an unsupported mode falls back to the richest one available (a dense-only store degrades hybrid to dense).
 
-**Adding a provider:** drop one file in the matching `src/providers/<capability>/` folder with a `@register("name", model_field="...")` decorator, add one import line to that folder's `__init__.py`, then select it via the relevant `OLLEN_RAG_*_PROVIDER` / `OLLEN_RAG_VECTOR_STORE` env var. Embedding and reranker providers also need an entry in `config/{embedding,reranker}_models.yaml` (an empty list there means "any model string").
+**Adding a provider:** drop one file in the matching `backend/src/providers/<capability>/` folder with a `@register("name", model_field="...")` decorator, add one import line to that folder's `__init__.py`, then select it via the relevant `OLLEN_RAG_*_PROVIDER` / `OLLEN_RAG_VECTOR_STORE` env var. Embedding and reranker providers also need an entry in `backend/config/{embedding,reranker}_models.yaml` (an empty list there means "any model string").
 
 ## Setup
 
-```bash
-python3.12 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+Requires [uv](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`).
 
-cp .env.example .env   # then fill in credentials
+```bash
+cd backend
+uv sync                 # creates .venv and installs runtime + dev deps from uv.lock
+cd ..
+cp .env.example .env    # then fill in credentials
 ```
 
 ## Run
@@ -60,8 +63,10 @@ docker compose up
 
 Brings up the service + a bundled Ollama + on-disk Chroma — **no API keys required to build**. Open
 `http://localhost:8000/ui/`; a first-run wizard walks you through picking a provider and (for cloud
-providers) entering credentials, testing them, and saving. Config persists on a volume. Add
-OpenSearch with `docker compose --profile opensearch up`.
+providers) entering credentials, testing them, and saving. Config persists on a volume; saving
+applies immediately (no container restart) regardless of how the image is run. Add OpenSearch with
+`docker compose --profile opensearch up -d` — if you pick it in the wizard/Settings before that,
+the console tells you and shows the exact command.
 
 The `ollen-rag` image is published to `ghcr.io/enricollen/ollen-rag` on every push to `main`/`develop`
 (`:latest`/`:develop`, amd64 only) and on version tags (`:v1.2.3`, amd64+arm64) — see
@@ -83,15 +88,22 @@ switchable at runtime.
 ### Plain Python service
 
 ```bash
-python3.12 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
 cp .env.example .env
-uvicorn app:app --reload
+cd backend && uv sync && ln -sfn ../.env .env
+cd ../frontend && npm install && npm run build        # one-time: builds the console into frontend/dist
+cd ../backend && uv run uvicorn app:app --reload
 ```
 
-The same wizard runs here too (visit `/ui/` before configuring). `--reload` lets the wizard apply
-config by reloading; without a supervisor the wizard tells you to restart manually. Point
-`OLLEN_RAG_*` at your own OpenSearch/Ollama/cloud as needed.
+The same wizard runs here too (visit `/ui/` before configuring). Saving settings applies live —
+`get_settings()` is re-read on the very next request, no restart needed in any of these run modes
+(`--reload` additionally respawns the worker, purely for a clean dev slate). Point `OLLEN_RAG_*` at
+your own OpenSearch/Ollama/cloud as needed.
+
+The console (`frontend/`) is a Vite + React + TypeScript app that builds to static assets served by
+FastAPI at `/ui/` — the build step above only needs to be re-run when you change `frontend/` itself,
+not on every backend restart. For frontend development with hot reload instead, run `npm run dev`
+inside `frontend/` (proxies `/api`, `/health`, `/ready` to `http://localhost:8000`, so run the
+backend alongside it).
 
 Ports: service `8000`, Ollama `11434`, and (with the `opensearch` profile) OpenSearch `9200`,
 Dashboards `5601`. The first Docker build is slow because of the LibreOffice layer and the baked-in
@@ -181,11 +193,11 @@ The **Indices** page lists every index across all registered stores. Indices in 
 
 ## Retrieval evaluation
 
-Golden datasets live in `config/eval/*.yaml` (see `config/eval/example.yaml`; each case is scoped to a mandatory `bucket`). Metrics: hit-rate@k, recall@k, MRR — overall and per bucket.
+Golden datasets live in `backend/config/eval/*.yaml` (see `backend/config/eval/example.yaml`; each case is scoped to a mandatory `bucket`). Metrics: hit-rate@k, recall@k, MRR — overall and per bucket.
 
 ```bash
 # CLI
-python -m src.rag.evaluation --dataset config/eval/golden.yaml [--top-k 10 --threshold 0.2 --no-rerank]
+cd backend && python -m src.rag.evaluation --dataset config/eval/golden.yaml [--top-k 10 --threshold 0.2 --no-rerank]
 
 # API
 curl -X POST http://localhost:8000/api/v1/eval/retrieval -d '{"dataset": "golden"}'
@@ -294,11 +306,11 @@ All settings live in `src/settings.py`, overridable via `OLLEN_RAG_*` environmen
 ## Tests
 
 ```bash
-# Unit tests (integration tests excluded by default via pytest.ini)
-.venv/bin/python -m pytest
+# Unit tests (integration tests excluded by default — see [tool.pytest] in backend/pyproject.toml)
+cd backend && uv run pytest
 
 # Integration tests (require a running OpenSearch)
-.venv/bin/python -m pytest -m integration
+cd backend && uv run pytest -m integration
 ```
 
 ## Roadmap
