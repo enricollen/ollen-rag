@@ -39,9 +39,11 @@ services:
     # a fresh volume -- as real .env content, not a fixed env var, so the Settings UI can freely
     # override it afterwards and have that change stick (a literal `environment:` entry here would
     # always outrank whatever gets written to .env, permanently pinning the vector store to chroma).
+    # opensearch url uses the compose service name (not localhost): from inside this
+    # container, localhost is the app itself. host browsers/tools use localhost:9201.
     command: >
       sh -c "mkdir -p /app/config-store &&
-             [ -s /app/config-store/.env ] || printf '%s\n' 'OLLEN_RAG_VECTOR_STORE=chroma' 'OLLEN_RAG_CHROMA_PATH=/app/data/chroma' 'OLLEN_RAG_OLLAMA_API_BASE=http://ollama:11434' 'OLLEN_RAG_OLLAMA_MODEL=gemma3:270m' > /app/config-store/.env &&
+             [ -s /app/config-store/.env ] || printf '%s\n' 'OLLEN_RAG_VECTOR_STORE=chroma' 'OLLEN_RAG_CHROMA_PATH=/app/data/chroma' 'OLLEN_RAG_OLLAMA_API_BASE=http://ollama:11434' 'OLLEN_RAG_OLLAMA_MODEL=gemma3:270m' 'OLLEN_RAG_OPENSEARCH_URL=http://opensearch:9200' 'OLLEN_RAG_OPENSEARCH_VERIFY_CERTS=false' > /app/config-store/.env &&
              ln -sf /app/config-store/.env /app/.env &&
              exec uvicorn app:app --host 0.0.0.0 --port 8000"
     depends_on:
