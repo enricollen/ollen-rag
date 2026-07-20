@@ -62,6 +62,14 @@ def is_configured(settings: Settings) -> bool:
     clear provider error rather than blocking onboarding on a third, rarely-changed setting."""
     return _llm_ready(settings) and _embedding_ready(settings)
 
+def needs_wizard(settings: Settings) -> bool:
+    """True only for a virgin install (no LLM provider chosen yet).
+
+    Once the operator has picked a provider — even if a later Settings edit leaves embeddings
+    incomplete — they stay in the console. Re-running the full first-run wizard on every F5 after
+    a partial settings save is far more annoying than a soft 'not ready' banner."""
+    return not bool(settings.llm_provider)
+
 def _probe_llm(settings: Settings) -> None:
     """Run a minimal live generation to prove the LLM credentials work. Raises on failure."""
     from src.factories.llm import create_llm  # lazy: pulls provider registrations

@@ -18,7 +18,7 @@ from src.factories.embeddings import create_embedding_model
 from src.factories.reranker import create_reranker
 from src.settings import get_settings
 
-# Mark every test in this module as integration-only so pytest.ini's
+# Mark every test in this module as integration-only so pyproject.toml's
 # `addopts = -m "not integration"` excludes it from the default run.
 pytestmark = pytest.mark.integration
 
