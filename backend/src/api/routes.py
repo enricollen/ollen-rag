@@ -1,5 +1,6 @@
 """REST routes: health, ingestion (async jobs), retrieval, cited generation, index listing."""
 import json
+import os
 import re
 import tempfile
 from pathlib import Path
@@ -11,6 +12,8 @@ from src.config.writer import merge_into_env
 from src.factories.chunker import CHUNKING_STRATEGIES
 from src.factories.embeddings import EmbeddingFactory, load_embedding_model_choices
 from src.factories.vector_store import VectorStoreFactory, create_backend, embedding_meta
+from src.logger import OllenLogger
+from src.providers.vector_stores.opensearch import opensearch_reachable
 from src.rag.evaluation import (
     compare_runs, evaluate, evaluate_legs, list_runs, load_dataset, load_run, parse_dataset, save_run,
 )
@@ -330,8 +333,17 @@ def get_settings_full() -> dict:
 
 @router.post("/api/v1/settings")
 def update_settings(changes: dict, background_tasks: BackgroundTasks) -> dict:
-    """Validate {field_name: value} against Settings, merge into .env, then restart the dev
-    service by touching app.py after the response is sent."""
+    """Validate {field_name: value} against Settings, merge into .env, then apply it live.
+
+    Applying live means: drop any process env var that would otherwise keep shadowing the
+    freshly written .env value (e.g. one baked into a container's `environment:` block), clear
+    get_settings()'s cache, and re-run logger setup — every factory (create_backend/create_llm/...)
+    already reads get_settings() fresh per call, so the very next request already runs on the new
+    config. No process restart is required (or attempted) for this to take effect, in *any*
+    runtime (plain process, `docker run` with no restart policy, docker-compose, etc.) -- unlike
+    relying on a supervisor to reboot an exited process, which silently does nothing if none is
+    configured. `restart_mode=reload` (uvicorn --reload in local dev) still additionally touches
+    app.py, purely so the dev worker fully respawns."""
     unknown = set(changes) - set(Settings.model_fields)
     if unknown:
         raise HTTPException(status_code=400, detail=f"Unknown settings: {sorted(unknown)}")
@@ -344,10 +356,23 @@ def update_settings(changes: dict, background_tasks: BackgroundTasks) -> dict:
     # Map field names to their OLLEN_RAG_* env keys; values written as plain strings.
     env_changes = {f"OLLEN_RAG_{k.upper()}": str(v) for k, v in changes.items()}
     merge_into_env(ENV_PATH, env_changes)
+    for key in env_changes:
+        os.environ.pop(key, None)
+    get_settings.cache_clear()
+    OllenLogger.setup(get_settings())
     mode = resolve_restart_mode(get_settings().restart_mode)
-    # exit-mode must run AFTER the response is sent, or the client never gets it.
-    background_tasks.add_task(apply_restart, mode)
-    return {"restarting": mode != "manual", "restart_mode": mode}
+    if mode == "reload":
+        # dev-only, uvicorn --reload: still touch app.py so the worker fully respawns after the
+        # response is sent (harmless no-op signal in every other mode).
+        background_tasks.add_task(apply_restart, mode)
+    return {"restarting": mode == "reload", "restart_mode": mode, "applied_live": True}
+
+@router.get("/api/v1/infra/opensearch/status")
+def opensearch_status() -> dict:
+    """Whether OpenSearch is reachable right now, so the console can prompt the operator with the
+    exact command to bring it up (`docker compose --profile opensearch up -d`) instead of failing
+    silently later at query/ingestion time."""
+    return {"reachable": opensearch_reachable(get_settings())}
 
 @router.get("/api/v1/indices")
 def indices() -> dict:

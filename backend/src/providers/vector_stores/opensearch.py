@@ -63,6 +63,24 @@ def _build_metadata_filters(raw_filters: list[dict] | None, condition: str) -> M
         condition=FilterCondition(condition),
     )
 
+def opensearch_reachable(settings: Settings, timeout: float = 2.0) -> bool:
+    """Best-effort liveness check against the configured OpenSearch cluster. Any response (even
+    an auth error) means something is listening; a connection failure means it's down.
+
+    Used by the console when the operator picks OpenSearch: the store is opt-in behind compose's
+    `opensearch` profile, so it may simply not be running yet -- the UI shows the start command."""
+    auth = (settings.opensearch_user, settings.opensearch_password) if settings.opensearch_user else None
+    try:
+        r = httpx.get(
+            f"{settings.opensearch_url}/_cluster/health",
+            auth=auth,
+            timeout=timeout,
+            verify=settings.opensearch_verify_certs,
+        )
+        return r.status_code < 500
+    except httpx.HTTPError:
+        return False
+
 @VectorStoreFactory.register("opensearch")
 class OpenSearchBackend(VectorStoreBackend):
     """VectorStoreBackend backed by OpenSearch with a server-side hybrid search pipeline."""

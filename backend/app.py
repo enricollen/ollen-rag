@@ -1,6 +1,7 @@
 """Service entrypoint: FastAPI app with the FastMCP server mounted at /mcp."""
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from time import perf_counter
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -15,6 +16,17 @@ from src.factories.reranker import create_reranker
 from src.settings import get_settings
 
 logger = OllenLogger("app")
+
+def _ui_dist() -> str:
+    """Resolve the React console build dir for both layouts:
+    - docker: backend is flattened into /app, so frontend/dist sits next to app.py
+    - local:  app.py lives in backend/, so frontend/dist is one level up at the repo root
+    """
+    here = Path(__file__).resolve().parent
+    for candidate in (here / "frontend" / "dist", here.parent / "frontend" / "dist"):
+        if candidate.is_dir():
+            return str(candidate)
+    return str(here / "frontend" / "dist")
 
 
 class _QuietPollFilter(logging.Filter):
@@ -88,8 +100,22 @@ def create_app() -> FastAPI:
     from src.api.onboarding import router as onboarding_router
     app.include_router(onboarding_router)
     app.mount("/mcp", mcp_app)
-    # Manual e2e test UI (static, no build step) served at /ui/
-    app.mount("/ui", StaticFiles(directory="ui", html=True), name="ui")
+    # React console (frontend/), built by the Dockerfile's web-builder stage / `npm run build` in
+    # Plain Python mode -- served at /ui/. Hash-routed SPA, so html=True's index.html fallback
+    # only ever needs to answer GET /ui/ itself.
+    app.mount("/ui", StaticFiles(directory=_ui_dist(), html=True), name="ui")
+
+    @app.middleware("http")
+    async def ui_shell_no_cache(request: Request, call_next):
+        # index.html must not be cached -- it points at hashed asset filenames; a stale shell keeps
+        # serving an old bundle even after a rebuild.
+        response = await call_next(request)
+        path = request.url.path.rstrip("/")
+        if path in ("/ui",) or request.url.path.endswith("/ui/") or request.url.path.endswith("/index.html"):
+            if "/ui" in request.url.path:
+                response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+                response.headers["Pragma"] = "no-cache"
+        return response
 
     @app.exception_handler(OllenRagError)
     async def ollen_rag_error_handler(request: Request, exc: OllenRagError) -> JSONResponse:

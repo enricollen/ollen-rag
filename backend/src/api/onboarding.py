@@ -14,12 +14,15 @@ class TestRequest(BaseModel):
 
 @router.get("/status")
 def status() -> dict:
-    """Whether the service is configured enough to leave the wizard, plus the current selections and
-    the detected compute (cpu/gpu) baked into the image -- shown read-only in the wizard."""
+    """Setup state for the console: `needs_wizard` gates the first-run UI (virgin install only);
+    `configured` is the stricter ready check (/ready, soft banner). Also returns the current
+    selections and the detected compute (cpu/gpu) baked into the image."""
     s = get_settings()
     return {
         "configured": onboarding.is_configured(s),
+        "needs_wizard": onboarding.needs_wizard(s),
         "llm_provider": s.llm_provider,
+        "embedding_provider": s.embedding_provider,
         "vector_store": s.vector_store,
         "compute": onboarding.detected_compute(),
     }

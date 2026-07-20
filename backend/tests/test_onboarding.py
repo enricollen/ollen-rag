@@ -2,7 +2,7 @@
 from fastapi.testclient import TestClient
 from app import app
 from src.settings import Settings
-from src.rag.onboarding import is_configured
+from src.rag.onboarding import is_configured, needs_wizard
 
 client = TestClient(app)
 
@@ -26,12 +26,20 @@ def test_is_configured_false_when_embedding_provider_unset():
     s = Settings(_env_file=None, llm_provider="litellm-ollama", embedding_provider="litellm-openai")
     assert is_configured(s) is False
 
+def test_needs_wizard_only_when_no_llm_provider_chosen():
+    """Partial misconfig after a settings edit must NOT re-trigger the wizard — only a virgin
+    install (empty llm_provider) should."""
+    assert needs_wizard(Settings(_env_file=None, llm_provider="")) is True
+    assert needs_wizard(Settings(_env_file=None, llm_provider="litellm-openai",
+                                 embedding_provider="litellm-openai", openai_embedding_model="")) is False
+
 def test_status_endpoint_shape():
     resp = client.get("/api/v1/onboarding/status")
     assert resp.status_code == 200
     body = resp.json()
-    assert set(body) >= {"configured", "llm_provider", "vector_store", "compute"}
+    assert set(body) >= {"configured", "needs_wizard", "llm_provider", "embedding_provider", "vector_store", "compute"}
     assert body["compute"] in {"cpu", "gpu"}
+    assert isinstance(body["needs_wizard"], bool)
 
 def test_test_endpoint_reports_failure_cleanly(monkeypatch):
     """A provider probe that raises must become {ok: false, detail: <msg>}, never a 500."""
