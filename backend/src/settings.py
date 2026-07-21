@@ -80,6 +80,11 @@ class Settings(BaseSettings):
     hybrid_dense_weight: float = 0.7
     # Chroma backend (embedded PersistentClient): on-disk store location
     chroma_path: str = "./chroma_db"
+    # Qdrant backend: url for the server (compose profile `qdrant`), or qdrant_path for embedded
+    # local mode (path wins when non-empty). api_key optional for Qdrant Cloud / secured instances.
+    qdrant_url: str = "http://localhost:6333"
+    qdrant_api_key: str = ""
+    qdrant_path: str = ""
     # chunking
     default_chunking_strategy: str = "sentence"  # sentence | token | semantic | window
     chunk_size: int = 512

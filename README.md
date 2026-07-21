@@ -3,7 +3,7 @@
 A provider-agnostic RAG (Retrieval-Augmented Generation) microservice. It ingests documents (PDF, Office, images) into a pluggable vector store, retrieves relevant chunks with hybrid search, and generates cited answers with an LLM. Every capability is exposed as both a **REST API** and **MCP tools**, so the service fits human-facing apps and AI agents alike.
 
 - **Pluggable everything** — LLM, embeddings, reranker, and vector store are each selected independently by env var (watsonx.ai native, local fastembed/cross-encoder, or any LiteLLM vendor).
-- **Two vector stores** — OpenSearch (dense + sparse + hybrid) and Chroma (embedded, dense-only).
+- **Three vector stores** — OpenSearch (dense + sparse + hybrid), Chroma (embedded, dense-only), and Qdrant (dense).
 - **Cited answers** — numbered `[n]` citations mapped back to source chunks.
 - **Web console** — a single-page UI mirrors the API for humans.
 
@@ -28,7 +28,7 @@ Everything pluggable follows one decorator-registry pattern: a factory in `backe
 | LLM | `LLMConnectorFactory` | `watsonx`, `litellm`, `litellm-watsonx`, `litellm-ollama`, `litellm-openai`, `litellm-openrouter` |
 | Embeddings | `EmbeddingFactory` | `watsonx`, `fastembed`, `litellm`, `litellm-watsonx`, `litellm-ollama`, `litellm-openai`, `litellm-openrouter` |
 | Reranker | `RerankerFactory` | `sentence-transformers`, `litellm`, `litellm-watsonx` |
-| Vector store | `VectorStoreFactory` | `opensearch`, `chroma` |
+| Vector store | `VectorStoreFactory` | `opensearch`, `chroma`, `qdrant` |
 
 The `VectorStoreBackend` interface (`src/factories/vector_store.py`) is the parity contract: every method is `@abstractmethod`, so a new backend must implement the full surface (retrieval, index/bucket admin, dedup, lifecycle) before it can instantiate. Backends declare their `supported_query_modes`; an unsupported mode falls back to the richest one available (a dense-only store degrades hybrid to dense).
 
@@ -66,6 +66,7 @@ Brings up the service + a bundled Ollama + on-disk Chroma — **no API keys requ
 providers) entering credentials, testing them, and saving. Config persists on a volume; saving
 applies immediately (no container restart) regardless of how the image is run. Add OpenSearch with
 `docker compose --profile opensearch up -d` — if you pick it in the wizard/Settings before that,
+the console warns. Same pattern for Qdrant: `docker compose --profile qdrant up -d`.
 the console tells you and shows the exact command.
 
 The `ollen-rag` image is published to `ghcr.io/enricollen/ollen-rag` on every push to `main`/`develop`
@@ -280,8 +281,11 @@ All settings live in `src/settings.py`, overridable via `OLLEN_RAG_*` environmen
 | `OLLEN_RAG_OLLAMA_MODEL` | `llama3.1` | Bare Ollama chat model tag (connector adds `ollama/`) |
 | `OLLEN_RAG_OLLAMA_EMBEDDING_MODEL` | `nomic-embed-text` | Bare Ollama embedding model tag |
 | `OLLEN_RAG_FASTEMBED_MODEL_NAME` | `BAAI/bge-small-en-v1.5` | fastembed model (local embeddings) |
-| `OLLEN_RAG_VECTOR_STORE` | `opensearch` | `opensearch` (dense+sparse+hybrid) or `chroma` (embedded, dense-only). Process-global |
+| `OLLEN_RAG_VECTOR_STORE` | `opensearch` | `opensearch` (dense+sparse+hybrid), `chroma` (embedded, dense-only), or `qdrant` (dense). Process-global |
 | `OLLEN_RAG_CHROMA_PATH` | `./chroma_db` | On-disk location for the embedded Chroma store |
+| `OLLEN_RAG_QDRANT_URL` | `http://localhost:6333` | Qdrant URL (compose profile `qdrant`) |
+| `OLLEN_RAG_QDRANT_API_KEY` | (empty) | Optional Qdrant API key |
+| `OLLEN_RAG_QDRANT_PATH` | (empty) | Embedded on-disk Qdrant path; when set, wins over URL |
 | `OLLEN_RAG_OPENSEARCH_URL` | `http://localhost:9200` | OpenSearch URL |
 | `OLLEN_RAG_OPENSEARCH_USER` | (empty) | OpenSearch basic-auth user |
 | `OLLEN_RAG_OPENSEARCH_PASSWORD` | (empty) | OpenSearch basic-auth password |
@@ -317,4 +321,3 @@ cd backend && uv run pytest -m integration
 
 - Add [Docling](https://github.com/docling-project/docling) as an additional parser option.
 - Broaden file-type support (`.txt`, `.pptx`, `.docx`, …).
-- Add Qdrant as a vector store backend.

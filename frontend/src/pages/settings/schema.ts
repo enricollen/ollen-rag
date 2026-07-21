@@ -37,7 +37,7 @@ export const GATE_KEYS: (keyof GateSelection)[] = ['llm_provider', 'embedding_pr
 
 // Per-field inline warnings for changes with data-migration consequences.
 export const FIELD_WARN: Record<string, string> = {
-  vector_store: 'Switching does not migrate data; each store holds its own indices. OpenSearch must be running (port 9201) when selected.',
+  vector_store: 'Switching does not migrate data; each store holds its own indices. OpenSearch (9201) / Qdrant (6333) must be running when selected.',
   embedding_provider: 'Changing embeddings requires a NEW index — existing indices are locked to their build model & vector dim. Re-ingest on a fresh index after saving.',
   litellm_embedding_model: 'Changing the embedding model requires a NEW index (different vectors/dim). Re-ingest after saving.',
   watsonx_embedding_model_id: 'Changing the embedding model requires a NEW index (different vectors/dim). Re-ingest after saving.',
@@ -62,7 +62,7 @@ export const SECTIONS: SectionDef[] = [
         pick: ['watsonx', 'fastembed', 'litellm', 'litellm-watsonx', 'litellm-ollama', 'litellm-openai', 'litellm-openrouter'],
       }),
       T('reranker_provider', 'select', { pick: ['sentence-transformers', 'litellm', 'litellm-watsonx'] }),
-      T('vector_store', 'select', { pick: ['opensearch', 'chroma'] }),
+      T('vector_store', 'select', { pick: ['opensearch', 'chroma', 'qdrant'] }),
     ],
   },
   {
@@ -158,6 +158,13 @@ export const SECTIONS: SectionDef[] = [
       T('hybrid_sparse_weight', 'number'),
       T('hybrid_dense_weight', 'number'),
     ],
+  },
+  {
+    id: 'vs_qdrant',
+    title: '§8 · Vector store — Qdrant',
+    gate: (s) => s.vector_store === 'qdrant',
+    note: 'In Docker use http://qdrant:6333 (service name). On the host use http://localhost:6333. Leave path empty for server mode; API key only for Qdrant Cloud / secured instances.',
+    fields: [T('qdrant_url'), T('qdrant_api_key', 'password'), T('qdrant_path')],
   },
   {
     id: 'chunking',

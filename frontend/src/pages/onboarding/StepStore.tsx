@@ -32,8 +32,16 @@ export function StepStore({
         </motion.div>
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.16 }}>
           <ProviderCard
+            label="Qdrant"
+            description="Needs the qdrant compose profile running."
+            selected={selected === 'qdrant'}
+            onClick={() => onSelect('qdrant')}
+          />
+        </motion.div>
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.22 }}>
+          <ProviderCard
             label="OpenSearch"
-            description="Needs the opensearch compose profile running."
+            description="Dense + BM25 hybrid — needs the opensearch compose profile."
             selected={selected === 'opensearch'}
             onClick={() => onSelect('opensearch')}
           />

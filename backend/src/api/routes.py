@@ -14,6 +14,7 @@ from src.factories.embeddings import EmbeddingFactory, load_embedding_model_choi
 from src.factories.vector_store import VectorStoreFactory, create_backend, embedding_meta
 from src.logger import OllenLogger
 from src.providers.vector_stores.opensearch import opensearch_reachable
+from src.providers.vector_stores.qdrant import qdrant_reachable
 from src.rag.evaluation import (
     compare_runs, evaluate, evaluate_legs, list_runs, load_dataset, load_run, parse_dataset, save_run,
 )
@@ -373,6 +374,13 @@ def opensearch_status() -> dict:
     exact command to bring it up (`docker compose --profile opensearch up -d`) instead of failing
     silently later at query/ingestion time."""
     return {"reachable": opensearch_reachable(get_settings())}
+
+@router.get("/api/v1/infra/qdrant/status")
+def qdrant_status() -> dict:
+    """Whether Qdrant is reachable right now, so the console can prompt the operator with the
+    exact command to bring it up (`docker compose --profile qdrant up -d`) instead of failing
+    silently later at query/ingestion time."""
+    return {"reachable": qdrant_reachable(get_settings())}
 
 @router.get("/api/v1/indices")
 def indices() -> dict:

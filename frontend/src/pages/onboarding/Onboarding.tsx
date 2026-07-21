@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { useNavigate } from 'react-router-dom'
 import { endpoints, errorMessage } from '../../api/client'
 import { OpenSearchDownModal } from '../../components/OpenSearchDownModal'
+import { QdrantDownModal } from '../../components/QdrantDownModal'
 import { ProgressTrack } from './ProgressTrack'
 import { StepCredentials } from './StepCredentials'
 import { StepFinish, type FinishState } from './StepFinish'
@@ -54,6 +55,7 @@ export function Onboarding() {
   const [finishDetail, setFinishDetail] = useState('')
   const [compute, setCompute] = useState('')
   const [showOsModal, setShowOsModal] = useState(false)
+  const [showQdrantModal, setShowQdrantModal] = useState(false)
 
   useEffect(() => {
     endpoints
@@ -87,6 +89,7 @@ export function Onboarding() {
 
   async function finish() {
     setShowOsModal(false)
+    setShowQdrantModal(false)
     setStep('finish')
     setFinishState('saving')
     const changes = {
@@ -114,13 +117,20 @@ export function Onboarding() {
     }
   }
 
-  // opensearch is opt-in behind a compose profile, so picking it doesn't mean it's actually
-  // running yet -- check before committing, so a broken retrieval step isn't the first surprise.
+  // opensearch / qdrant are opt-in behind compose profiles, so picking one doesn't mean it's
+  // actually running yet -- check before committing, so a broken retrieval step isn't the first surprise.
   async function handleFinishClick() {
     if (vectorStore === 'opensearch') {
       const reachable = await endpoints.opensearchStatus().then((s) => s.reachable).catch(() => false)
       if (!reachable) {
         setShowOsModal(true)
+        return
+      }
+    }
+    if (vectorStore === 'qdrant') {
+      const reachable = await endpoints.qdrantStatus().then((s) => s.reachable).catch(() => false)
+      if (!reachable) {
+        setShowQdrantModal(true)
         return
       }
     }
@@ -217,6 +227,12 @@ export function Onboarding() {
       <OpenSearchDownModal
         open={showOsModal}
         onClose={() => setShowOsModal(false)}
+        onReachable={finish}
+        onContinueAnyway={finish}
+      />
+      <QdrantDownModal
+        open={showQdrantModal}
+        onClose={() => setShowQdrantModal(false)}
         onReachable={finish}
         onContinueAnyway={finish}
       />
