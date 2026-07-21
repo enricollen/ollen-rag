@@ -55,6 +55,12 @@ COPY --from=web-builder /frontend/dist ./frontend/dist
 RUN python -c "from sentence_transformers import CrossEncoder; CrossEncoder('cross-encoder/mmarco-mMiniLMv2-L12-H384-v1')" \
     && python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='BAAI/bge-small-en-v1.5', cache_dir='./.cache/fastembed')"
 
+# liteparse/tesseract-rs downloads eng.traineddata from github on first OCR page. bake it in so
+# scanned pdfs don't fail when the container has flaky egress to github/raw.githubusercontent.com.
+RUN mkdir -p /app/.tesseract-rs/tessdata \
+    && curl -fsSL -o /app/.tesseract-rs/tessdata/eng.traineddata \
+         https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/main/eng.traineddata
+
 # Plain non-root user (no OpenShift arbitrary-UID gymnastics); owns the app + caches it writes to.
 # Pre-create the volume mount points (config store + chroma data) so a fresh named volume mounted
 # here inherits appuser ownership -- otherwise Docker creates them root-owned and the non-root
