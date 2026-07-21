@@ -40,7 +40,7 @@ export function IngestionPage() {
   const [bucket, setBucket] = useState('')
   const [metaRows, setMetaRows] = useState<MetaRow[]>([])
   const [enrich, setEnrich] = useState(false)
-  const [files, setFiles] = useState<FileList | null>(null)
+  const [files, setFiles] = useState<File[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [progress, setProgress] = useState<{ pct: number; label: string } | null>(null)
 
@@ -66,7 +66,7 @@ export function IngestionPage() {
   const filesInSelectedBucket = bucket && bucketNames.includes(bucket) ? bucketFiles[bucket] || [] : []
 
   async function submit() {
-    if (!files || !files.length) {
+    if (!files.length) {
       toast('Choose a file first', 'error')
       return
     }

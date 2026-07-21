@@ -14,10 +14,11 @@ const VARIANTS: Record<Variant, string> = {
   danger: 'bg-transparent text-bad border border-bad/50 hover:bg-bad/10',
 }
 
-export function Button({ variant = 'secondary', className = '', ...rest }: ButtonProps) {
+export function Button({ variant = 'secondary', className = '', type = 'button', ...rest }: ButtonProps) {
   return (
     <button
       {...rest}
+      type={type}
       className={`inline-flex items-center justify-center gap-2 rounded-control px-4 py-2 text-sm font-medium transition-all duration-150 active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed ${VARIANTS[variant]} ${className}`}
     />
   )
