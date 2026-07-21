@@ -196,7 +196,7 @@ export interface OnboardingStatus {
 }
 
 export interface OnboardingTestRequest {
-  target: 'llm' | 'embedding'
+  target: 'llm' | 'embedding' | 'reranker'
   changes: Record<string, unknown>
 }
 

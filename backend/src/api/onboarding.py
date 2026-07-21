@@ -9,7 +9,7 @@ router = APIRouter(prefix="/api/v1/onboarding")
 
 class TestRequest(BaseModel):
     """A candidate provider selection + credentials to validate without saving."""
-    target: str = "llm"           # "llm" | "embedding"
+    target: str = "llm"           # "llm" | "embedding" | "reranker"
     changes: dict = {}            # settings fields to overlay on the current config
 
 @router.get("/status")
