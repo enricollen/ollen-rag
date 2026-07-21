@@ -48,7 +48,11 @@ export function ingestOne(params: IngestOneParams): Promise<{ job_id: string; st
       if (xhr.status >= 200 && xhr.status < 300) resolve(body as { job_id: string; status: string })
       else reject(Object.assign(new Error(`HTTP ${xhr.status}`), { body }))
     }
-    xhr.onerror = () => reject(new Error('Network error'))
+    // xhr.onerror fires for connection refused / dns / aborted — not for http 4xx/5xx
+    xhr.onerror = () =>
+      reject(new Error('Network error — could not reach /api/v1/ingest (is the service up on :8000?)'))
+    xhr.ontimeout = () => reject(new Error('Upload timed out'))
+    xhr.timeout = 10 * 60 * 1000
     xhr.send(form)
   })
 }

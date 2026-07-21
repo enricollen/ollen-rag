@@ -4,7 +4,7 @@ import { useHistoryStore } from '../store/historyStore'
 import { toast } from '../store/toastStore'
 
 export interface IngestBatchConfig {
-  files: FileList | File[]
+  files: File[]
   indexName: string
   bucket: string
   strategy: string | null
