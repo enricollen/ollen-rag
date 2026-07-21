@@ -81,9 +81,20 @@ def _probe_embedding(settings: Settings) -> None:
     from src.factories.embeddings import create_embedding_model
     create_embedding_model(settings).get_text_embedding("ping")
 
+def _probe_reranker(settings: Settings) -> None:
+    """Score one dummy node to prove reranker credentials work. Raises on failure."""
+    from llama_index.core.schema import NodeWithScore, QueryBundle, TextNode
+    from src.factories.reranker import create_reranker
+    nodes = [NodeWithScore(node=TextNode(text="ping"), score=0.5)]
+    create_reranker(top_n=1, settings=settings).postprocess_nodes(
+        nodes, query_bundle=QueryBundle("ping"),
+    )
+
 def probe(target: str, settings: Settings) -> None:
     """Dispatch to the right probe. Raises on failure; returns None on success."""
     if target == "embedding":
         _probe_embedding(settings)
+    elif target == "reranker":
+        _probe_reranker(settings)
     else:
         _probe_llm(settings)

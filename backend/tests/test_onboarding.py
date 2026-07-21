@@ -54,3 +54,14 @@ def test_test_endpoint_success(monkeypatch):
     monkeypatch.setattr(ob, "_probe_llm", lambda s: None)  # no exception == success
     resp = client.post("/api/v1/onboarding/test", json={"target": "llm", "changes": {"llm_provider": "litellm-ollama"}})
     assert resp.json()["ok"] is True
+
+def test_test_endpoint_dispatches_embedding_and_reranker(monkeypatch):
+    """Wizard embedding/reranker steps hit their own probes, not the llm one."""
+    import src.rag.onboarding as ob
+    seen: list[str] = []
+    monkeypatch.setattr(ob, "_probe_embedding", lambda s: seen.append("embedding"))
+    monkeypatch.setattr(ob, "_probe_reranker", lambda s: seen.append("reranker"))
+    monkeypatch.setattr(ob, "_probe_llm", lambda s: seen.append("llm"))
+    assert client.post("/api/v1/onboarding/test", json={"target": "embedding", "changes": {}}).json()["ok"]
+    assert client.post("/api/v1/onboarding/test", json={"target": "reranker", "changes": {}}).json()["ok"]
+    assert seen == ["embedding", "reranker"]
