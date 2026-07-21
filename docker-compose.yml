@@ -1,6 +1,7 @@
 # docker-compose.yml — turnkey local stack. `docker compose pull && docker compose up` = service +
 # Ollama + on-disk Chroma, no API keys, no local build (pulls the published CPU image). Add
-# OpenSearch with: `docker compose --profile opensearch up`.
+# OpenSearch with: `docker compose --profile opensearch up`. Add Qdrant with:
+# `docker compose --profile qdrant up`.
 services:
   ollen-rag:
     # Published CPU image (see .github/workflows/docker-publish.yml); `docker compose pull` fetches
@@ -43,7 +44,7 @@ services:
     # container, localhost is the app itself. host browsers/tools use localhost:9201.
     command: >
       sh -c "mkdir -p /app/config-store &&
-             [ -s /app/config-store/.env ] || printf '%s\n' 'OLLEN_RAG_VECTOR_STORE=chroma' 'OLLEN_RAG_CHROMA_PATH=/app/data/chroma' 'OLLEN_RAG_OLLAMA_API_BASE=http://ollama:11434' 'OLLEN_RAG_OLLAMA_MODEL=gemma3:270m' 'OLLEN_RAG_OPENSEARCH_URL=http://opensearch:9200' 'OLLEN_RAG_OPENSEARCH_VERIFY_CERTS=false' > /app/config-store/.env &&
+             [ -s /app/config-store/.env ] || printf '%s\n' 'OLLEN_RAG_VECTOR_STORE=chroma' 'OLLEN_RAG_CHROMA_PATH=/app/data/chroma' 'OLLEN_RAG_OLLAMA_API_BASE=http://ollama:11434' 'OLLEN_RAG_OLLAMA_MODEL=gemma3:270m' 'OLLEN_RAG_OPENSEARCH_URL=http://opensearch:9200' 'OLLEN_RAG_OPENSEARCH_VERIFY_CERTS=false' 'OLLEN_RAG_QDRANT_URL=http://qdrant:6333' > /app/config-store/.env &&
              ln -sf /app/config-store/.env /app/.env &&
              exec uvicorn app:app --host 0.0.0.0 --port 8000"
     depends_on:
@@ -86,8 +87,23 @@ services:
     depends_on:
       - opensearch
 
+  qdrant:
+    image: qdrant/qdrant:v1.18.3
+    profiles: ["qdrant"]
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/6333'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
 volumes:
   ollen-config:
   ollen-chroma:
   ollama-models:
   opensearch-data:
+  qdrant-data:

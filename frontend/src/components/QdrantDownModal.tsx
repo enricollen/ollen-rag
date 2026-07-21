@@ -1,12 +1,12 @@
 import { endpoints } from '../api/client'
 import { VectorStoreDownModal } from './VectorStoreDownModal'
 
-const START_COMMAND = 'docker compose --profile opensearch up -d'
+const START_COMMAND = 'docker compose --profile qdrant up -d'
 
-/** Shown when OpenSearch is selected but not reachable -- OpenSearch is opt-in behind compose's
- * `opensearch` profile (see docker-compose.yml), so it's simply not running until that profile is
+/** Shown when Qdrant is selected but not reachable -- Qdrant is opt-in behind compose's
+ * `qdrant` profile (see docker-compose.yml), so it's simply not running until that profile is
  * used at least once. */
-export function OpenSearchDownModal({
+export function QdrantDownModal({
   open,
   onClose,
   onReachable,
@@ -23,9 +23,9 @@ export function OpenSearchDownModal({
       onClose={onClose}
       onReachable={onReachable}
       onContinueAnyway={onContinueAnyway}
-      storeLabel="OpenSearch"
+      storeLabel="Qdrant"
       startCommand={START_COMMAND}
-      checkReachable={() => endpoints.opensearchStatus().then((s) => s.reachable)}
+      checkReachable={() => endpoints.qdrantStatus().then((s) => s.reachable)}
     />
   )
 }

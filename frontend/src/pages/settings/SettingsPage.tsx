@@ -5,6 +5,7 @@ import { Button } from '../../components/Button'
 import { GearIcon } from '../../components/icons'
 import { EmptyState, Spinner } from '../../components/Misc'
 import { OpenSearchDownModal } from '../../components/OpenSearchDownModal'
+import { QdrantDownModal } from '../../components/QdrantDownModal'
 import { PageHeader } from '../../components/PageHeader'
 import { Pill } from '../../components/Pill'
 import { toast } from '../../store/toastStore'
@@ -37,6 +38,7 @@ export function SettingsPage() {
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState('')
   const [showOsModal, setShowOsModal] = useState(false)
+  const [showQdrantModal, setShowQdrantModal] = useState(false)
   const [pendingChanges, setPendingChanges] = useState<Record<string, unknown> | null>(null)
 
   useEffect(() => {
@@ -65,8 +67,8 @@ export function SettingsPage() {
       setSaveStatus('No changes.')
       return
     }
-    // Switching to OpenSearch doesn't mean it's actually running -- it's opt-in behind a compose
-    // profile. Check first so a broken retrieval call isn't the first sign anything's wrong.
+    // Switching to OpenSearch / Qdrant doesn't mean it's actually running -- they're opt-in behind
+    // compose profiles. Check first so a broken retrieval call isn't the first sign anything's wrong.
     if (changes.vector_store === 'opensearch') {
       const reachable = await endpoints.opensearchStatus().then((s) => s.reachable).catch(() => false)
       if (!reachable) {
@@ -75,11 +77,20 @@ export function SettingsPage() {
         return
       }
     }
+    if (changes.vector_store === 'qdrant') {
+      const reachable = await endpoints.qdrantStatus().then((s) => s.reachable).catch(() => false)
+      if (!reachable) {
+        setPendingChanges(changes)
+        setShowQdrantModal(true)
+        return
+      }
+    }
     await commitSave(changes)
   }
 
   async function commitSave(changes: Record<string, unknown>) {
     setShowOsModal(false)
+    setShowQdrantModal(false)
     setSaving(true)
     setSaveStatus('Saving…')
     try {
@@ -155,6 +166,12 @@ export function SettingsPage() {
       <OpenSearchDownModal
         open={showOsModal}
         onClose={() => setShowOsModal(false)}
+        onReachable={() => pendingChanges && commitSave(pendingChanges)}
+        onContinueAnyway={() => pendingChanges && commitSave(pendingChanges)}
+      />
+      <QdrantDownModal
+        open={showQdrantModal}
+        onClose={() => setShowQdrantModal(false)}
         onReachable={() => pendingChanges && commitSave(pendingChanges)}
         onContinueAnyway={() => pendingChanges && commitSave(pendingChanges)}
       />

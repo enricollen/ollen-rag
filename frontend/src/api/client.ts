@@ -87,6 +87,7 @@ export const endpoints = {
     postJson<OnboardingTestResponse>('/api/v1/onboarding/test', req),
 
   opensearchStatus: () => api<{ reachable: boolean }>('/api/v1/infra/opensearch/status'),
+  qdrantStatus: () => api<{ reachable: boolean }>('/api/v1/infra/qdrant/status'),
 
   indices: () => api<{ indices: IndexListEntry[] }>('/api/v1/indices'),
   indicesOverview: () => api<IndicesOverviewResponse>('/api/v1/indices/overview'),

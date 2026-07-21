@@ -31,7 +31,7 @@ export function SectionCard({
           <FieldRow key={f.key} field={f} current={current} initial={initial} sectionActive={active} onChange={onChange} />
         ))}
       </div>
-      {(section.id === 'vs_chroma' || section.id === 'vs_os') && (
+      {(section.id === 'vs_chroma' || section.id === 'vs_os' || section.id === 'vs_qdrant') && (
         <div className="text-xs text-ink-faint mt-2">Switching vector store does not migrate data &mdash; each store holds its own indices.</div>
       )}
     </Panel>
