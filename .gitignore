@@ -1,11 +1,15 @@
 .venv/
+backend/.venv/
 __pycache__/
 *.pyc
 .env
 .cache/
 .pytest_cache/
 chroma_db/
+backend/chroma_db/
 models
 docs/superpowers
-config/eval/nami_docs_full.yaml
-config/eval/runs/
+backend/config/eval/nami_docs_full.yaml
+backend/config/eval/runs/
+frontend/node_modules/
+frontend/dist/

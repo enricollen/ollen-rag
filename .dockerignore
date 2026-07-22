@@ -1,15 +1,22 @@
 # .dockerignore
 .venv
+backend/.venv
 __pycache__
 *.pyc
 .env
 .git
 .pytest_cache
 docs
-tests
+# Tests stay out of the image (run on the host / in CI).
+backend/tests
 # Developer-only symlink to an external models dir; broken outside one machine and would copy
 # as a dangling link. The image bakes the default local models itself (see Dockerfile).
 models
 # Local on-disk stores / caches must never be baked into the image.
 chroma_db
+backend/chroma_db
 .cache
+# React console: the web-builder stage does its own npm ci + npm run build from source, so a
+# locally-built dist/ or installed node_modules/ would just be dead weight in the build context.
+frontend/node_modules
+frontend/dist

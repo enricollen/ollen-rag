@@ -1,6 +1,7 @@
 # docker-compose.yml — turnkey local stack. `docker compose pull && docker compose up` = service +
 # Ollama + on-disk Chroma, no API keys, no local build (pulls the published CPU image). Add
-# OpenSearch with: `docker compose --profile opensearch up`.
+# OpenSearch with: `docker compose --profile opensearch up`. Add Qdrant with:
+# `docker compose --profile qdrant up`.
 services:
   ollen-rag:
     # Published CPU image (see .github/workflows/docker-publish.yml); `docker compose pull` fetches
@@ -14,7 +15,7 @@ services:
       args:
         # cpu (default, ~5-6GB smaller) or gpu. Override: `TORCH_FLAVOR=gpu docker compose up --build`.
         TORCH_FLAVOR: ${TORCH_FLAVOR:-cpu}
-    restart: unless-stopped          # config-apply uses OLLEN_RAG_RESTART_MODE=exit -> policy reboots
+    restart: unless-stopped          # crash recovery only -- config saves apply live, no reboot needed
     # For GPU inference: build with TORCH_FLAVOR=gpu and uncomment the reservation below (needs the
     # NVIDIA Container Toolkit on the host).
     # deploy:
@@ -24,25 +25,27 @@ services:
     #         - driver: nvidia
     #           count: all
     #           capabilities: [gpu]
-    environment:
-      # Infra wiring only -- where Ollama/Chroma live, not a provider choice. LLM/embedding
-      # provider are intentionally left unset here: they default to "" (src/settings.py), so
-      # /api/v1/onboarding/status reports not-configured and the wizard at /ui/ (or your own
-      # OLLEN_RAG_LLM_PROVIDER / OLLEN_RAG_EMBEDDING_PROVIDER env vars, for headless deploys)
-      # is what actually turns this stack on.
-      - OLLEN_RAG_VECTOR_STORE=chroma
-      - OLLEN_RAG_CHROMA_PATH=/app/data/chroma
-      - OLLEN_RAG_OLLAMA_API_BASE=http://ollama:11434
-      - OLLEN_RAG_OLLAMA_MODEL=gemma3:270m
-      - OLLEN_RAG_RESTART_MODE=exit
+    # No `environment:` block here on purpose: LLM/embedding provider default to "" (src/settings.py),
+    # so /api/v1/onboarding/status reports not-configured and the wizard at /ui/ (or your own
+    # OLLEN_RAG_LLM_PROVIDER / OLLEN_RAG_EMBEDDING_PROVIDER env vars, for headless deploys) is what
+    # actually turns this stack on. Every other field lives in .env (seeded once below) instead of
+    # here, so the Settings UI can freely change it afterwards -- see the `command:` comment.
     ports:
       - "8000:8000"
     volumes:
       - ollen-config:/app/config-store     # persists the wizard-written .env (see command)
       - ollen-chroma:/app/data/chroma      # persists indexed data
-    # Keep the writable .env on the config volume, symlinked to where the app reads it.
+    # Keep the writable .env on the config volume, symlinked to where the app reads it. Seeds a
+    # turnkey-friendly default (chroma, no external store to run) into that .env exactly once, on
+    # a fresh volume -- as real .env content, not a fixed env var, so the Settings UI can freely
+    # override it afterwards and have that change stick (a literal `environment:` entry here would
+    # always outrank whatever gets written to .env, permanently pinning the vector store to chroma).
+    # opensearch url uses the compose service name (not localhost): from inside this
+    # container, localhost is the app itself. host browsers/tools use localhost:9201.
     command: >
-      sh -c "touch /app/config-store/.env && ln -sf /app/config-store/.env /app/.env &&
+      sh -c "mkdir -p /app/config-store &&
+             [ -s /app/config-store/.env ] || printf '%s\n' 'OLLEN_RAG_VECTOR_STORE=chroma' 'OLLEN_RAG_CHROMA_PATH=/app/data/chroma' 'OLLEN_RAG_OLLAMA_API_BASE=http://ollama:11434' 'OLLEN_RAG_OLLAMA_MODEL=gemma3:270m' 'OLLEN_RAG_OPENSEARCH_URL=http://opensearch:9200' 'OLLEN_RAG_OPENSEARCH_VERIFY_CERTS=false' 'OLLEN_RAG_QDRANT_URL=http://qdrant:6333' > /app/config-store/.env &&
+             ln -sf /app/config-store/.env /app/.env &&
              exec uvicorn app:app --host 0.0.0.0 --port 8000"
     depends_on:
       - ollama
@@ -84,8 +87,23 @@ services:
     depends_on:
       - opensearch
 
+  qdrant:
+    image: qdrant/qdrant:v1.18.3
+    profiles: ["qdrant"]
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/6333'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
 volumes:
   ollen-config:
   ollen-chroma:
   ollama-models:
   opensearch-data:
+  qdrant-data:

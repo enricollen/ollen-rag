@@ -1,0 +1,273 @@
+description: >
+  Golden retrieval set over the four public-domain short stories in docs/
+  (example_document1–4.pdf). Cases are sparse and specific: paraphrased
+  queries, rare proper nouns, and near-miss distractors across the two
+  Stoker tales (rats/rope vs wolves/tomb). Index the four PDFs first; eval
+  is bucket-agnostic — `bucket` here is only a metrics label.
+
+  Run: python -m src.rag.evaluation --dataset config/eval/golden.yaml --top-k 10
+
+cases:
+  # ── example_document1.pdf — Irving, The Adventure of the German Student ──
+
+  - query: >
+      Before being sent to Paris, at which German university had the visionary
+      student been reading?
+    bucket: german_student
+    expected:
+      - file_name: example_document1.pdf
+        contains: "studied for some time at Göttingen"
+        relevance: 3
+
+  - query: >
+      Crossing which execution square near the Hôtel de Ville did Wolfgang
+      first notice the woman in black?
+    bucket: german_student
+    expected:
+      - file_name: example_document1.pdf
+        contains: "Place de Grève"
+        relevance: 3
+
+  - query: >
+      Aside from her black dress, what single ornament did the stranger wear
+      at the throat?
+    bucket: german_student
+    expected:
+      - file_name: example_document1.pdf
+        contains: "clasped by diamonds"
+        relevance: 3
+
+  - query: >
+      Which bridge did Wolfgang take when leading the homeless woman toward
+      the Pays Latin?
+    bucket: german_student
+    expected:
+      - file_name: example_document1.pdf
+        contains: "across the Pont Neuf"
+        relevance: 3
+
+  - query: >
+      After the police undid the black collar on the corpse in Wolfgang's
+      chamber, what physical revelation followed?
+    bucket: german_student
+    expected:
+      - file_name: example_document1.pdf
+        contains: "the head rolled on the floor"
+        relevance: 3
+      - file_name: example_document1.pdf
+        contains: "she was guillotined yesterday"
+        relevance: 2
+
+  # ── example_document2.pdf — Montgomery, Abel and His Great Adventure ──
+
+  - query: >
+      What name did Abel give the orange cat he rescued from a ribbon collar
+      in a winter tree?
+    bucket: abel
+    expected:
+      - file_name: example_document2.pdf
+        contains: "Captain Kidd, Mr. Woodley"
+        relevance: 3
+
+  - query: >
+      Which trees does Abel call “the trees of princesses,” insisting they need
+      spring trimming so they never look ragged?
+    bucket: abel
+    expected:
+      - file_name: example_document2.pdf
+        contains: "Always liked Lombardies"
+        relevance: 3
+      - file_name: example_document2.pdf
+        contains: "Lombardies for society"
+        relevance: 2
+
+  - query: >
+      Which neighbour sells flowers and vegetables to hotel guests and thinks
+      Abel a fool for giving garden surplus away?
+    bucket: abel
+    expected:
+      - file_name: example_document2.pdf
+        contains: "Geordie Marr down the harbour"
+        relevance: 3
+
+  - query: >
+      When golden glow makes Abel restless, which dark wine-hued flower does
+      he sit with to calm himself?
+    bucket: abel
+    expected:
+      - file_name: example_document2.pdf
+        contains: "dark wine-hued hollyhock"
+        relevance: 3
+
+  - query: >
+      Who was Alice Armstrong’s sailor lover whose ship never returned to the
+      harbour?
+    bucket: abel
+    expected:
+      - file_name: example_document2.pdf
+        contains: "James Milburn was her lover"
+        relevance: 3
+
+  - query: >
+      What foreign bride did Abel’s brother Alec bring home from the West
+      Indies, and who planted the hop vines on the trellis?
+    bucket: abel
+    expected:
+      - file_name: example_document2.pdf
+        contains: "brought home a Spanish girl"
+        relevance: 2
+      - file_name: example_document2.pdf
+        contains: "she planted the vines"
+        relevance: 3
+
+  - query: >
+      Why does Abel expect to die sooner than Tamzine—what family heart does
+      he say he inherited?
+    bucket: abel
+    expected:
+      - file_name: example_document2.pdf
+        contains: "I have the Marwood heart"
+        relevance: 3
+
+  # ── example_document3.pdf — Stoker, The Judge’s House ──
+
+  - query: >
+      At which sleepy market town did Malcolmson alight after picking the
+      first unfamiliar name on the timetable?
+    bucket: judges_house
+    expected:
+      - file_name: example_document3.pdf
+        contains: "alighted at Benchurch"
+        relevance: 3
+
+  - query: >
+      What is the name of the inn whose landlady tries to keep Malcolmson
+      from lodging in the empty Jacobean house?
+    bucket: judges_house
+    expected:
+      - file_name: example_document3.pdf
+        contains: "The Good Traveller"
+        relevance: 3
+      - file_name: example_document3.pdf
+        contains: "Mrs. Witham"
+        relevance: 2
+
+  - query: >
+      Which charity’s overnight rules stop the charwoman from sleeping at the
+      Judge’s House even if offered the place?
+    bucket: judges_house
+    expected:
+      - file_name: example_document3.pdf
+        contains: "Greenhow’s Charity"
+        relevance: 3
+
+  - query: >
+      Among the mathematics books Malcolmson threw at the giant rat, which
+      single volume alone struck it and drove it up the alarm rope?
+    bucket: judges_house
+    expected:
+      - file_name: example_document3.pdf
+        contains: "The Bible my mother gave me"
+        relevance: 3
+
+  - query: >
+      According to Dr. Thornhill, what had the alarm-bell rope previously
+      been used for in the Judge’s time?
+    bucket: judges_house
+    expected:
+      - file_name: example_document3.pdf
+        contains: "the hangman used for all the victims"
+        relevance: 3
+
+  - query: >
+      After dusting, which wall painting—counted from the fireplace—revealed
+      a scarlet-and-ermine figure whose eyes matched the rat’s?
+    bucket: judges_house
+    expected:
+      - file_name: example_document3.pdf
+        contains: "third picture from the fireplace"
+        relevance: 3
+      - file_name: example_document3.pdf
+        contains: "robes of scarlet and ermine"
+        relevance: 2
+
+  # ── example_document4.pdf — Stoker, Dracula’s Guest ──
+
+  - query: >
+      At which Munich hotel was the English narrator staying when Herr
+      Delbrück warned the coachman about the night?
+    bucket: draculas_guest
+    expected:
+      - file_name: example_document4.pdf
+        contains: "Quatre Saisons"
+        relevance: 3
+
+  - query: >
+      What laconic answer did Johann give when asked what night it was,
+      crossing himself as he spoke?
+    bucket: draculas_guest
+    expected:
+      - file_name: example_document4.pdf
+        contains: "Walpurgis nacht"
+        relevance: 3
+
+  - query: >
+      Whose marble tomb in the deserted Styrian graveyard bore an iron spike
+      through its roof and the year 1801?
+    bucket: draculas_guest
+    expected:
+      - file_name: example_document4.pdf
+        contains: "COUNTESS DOLINGEN OF GRATZ"
+        relevance: 3
+
+  - query: >
+      What Russian inscription was cut on the back of the Countess’s sepulchre?
+    bucket: draculas_guest
+    expected:
+      - file_name: example_document4.pdf
+        contains: "The dead travel fast"
+        relevance: 3
+
+  - query: >
+      From which town was the Boyar’s telegram signed that ordered every
+      effort to keep the English guest safe from snow and wolves?
+    bucket: draculas_guest
+    expected:
+      - file_name: example_document4.pdf
+        contains: "Bistritz"
+        relevance: 3
+      - file_name: example_document4.pdf
+        contains: "Dracula"
+        relevance: 2
+
+  # ── cross-document distractors (same author / overlapping motifs) ──
+
+  - query: >
+      In which story does a hangman’s rope hang beside a carved oak chair in
+      a dining-room, rather than a wolf warming a traveller’s blood?
+    bucket: distractors
+    expected:
+      - file_name: example_document3.pdf
+        contains: "rope of the great alarm bell"
+        relevance: 3
+
+  - query: >
+      Which tale places its climax at a snow-covered marble tomb among yew
+      and cypress, not among rats behind Jacobean wainscot?
+    bucket: distractors
+    expected:
+      - file_name: example_document4.pdf
+        contains: "great massive tomb of marble"
+        relevance: 3
+      - file_name: example_document4.pdf
+        contains: "yew and cypress"
+        relevance: 2
+
+  - query: >
+      Who dies in a Paris madhouse after believing an evil spirit reanimated
+      a guillotined body—not the student found hanged from an alarm bell?
+    bucket: distractors
+    expected:
+      - file_name: example_document1.pdf
+        contains: "died in a madhouse"
+        relevance: 3
