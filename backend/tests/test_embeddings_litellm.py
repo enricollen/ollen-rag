@@ -63,6 +63,33 @@ def test_ollama_provider_needs_only_an_api_base(recorder):
     assert recorder.calls[0]["api_base"] == "http://localhost:11434"
     assert "api_key" not in recorder.calls[0]
 
+def test_lmstudio_provider_prefixes_model_and_sends_api_base(recorder):
+    s = Settings(
+        _env_file=None,
+        embedding_provider="litellm-lmstudio",
+        lmstudio_embedding_model="text-embedding-nomic-embed-text-v1.5",
+        lmstudio_api_base="http://localhost:1234/v1",
+    )
+    create_embedding_model(s).get_text_embedding("hello")
+    assert recorder.calls[0]["model"] == "lm_studio/text-embedding-nomic-embed-text-v1.5"
+    assert recorder.calls[0]["api_base"] == "http://localhost:1234/v1"
+    assert "api_key" not in recorder.calls[0]
+
+def test_lmstudio_provider_sends_optional_api_key(recorder):
+    s = Settings(
+        _env_file=None,
+        embedding_provider="litellm-lmstudio",
+        lmstudio_embedding_model="nomic",
+        lmstudio_api_key="lm-studio",
+    )
+    create_embedding_model(s).get_text_embedding("hello")
+    assert recorder.calls[0]["api_key"] == "lm-studio"
+
+def test_lmstudio_provider_refuses_to_construct_without_a_model():
+    s = Settings(_env_file=None, embedding_provider="litellm-lmstudio", lmstudio_embedding_model="")
+    with pytest.raises(ValueError, match="OLLEN_RAG_LMSTUDIO_EMBEDDING_MODEL"):
+        create_embedding_model(s)
+
 def test_batch_embedding_sends_one_call(recorder):
     s = Settings(_env_file=None, embedding_provider="litellm-ollama")
     vectors = create_embedding_model(s)._get_text_embeddings(["a", "b", "c"])

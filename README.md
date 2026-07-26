@@ -25,8 +25,8 @@ Everything pluggable follows one decorator-registry pattern: a factory in `backe
 
 | Capability | Factory | Providers |
 |------------|---------|-----------|
-| LLM | `LLMConnectorFactory` | `watsonx`, `litellm`, `litellm-watsonx`, `litellm-ollama`, `litellm-openai`, `litellm-openrouter` |
-| Embeddings | `EmbeddingFactory` | `watsonx`, `fastembed`, `litellm`, `litellm-watsonx`, `litellm-ollama`, `litellm-openai`, `litellm-openrouter` |
+| LLM | `LLMConnectorFactory` | `watsonx`, `litellm`, `litellm-watsonx`, `litellm-ollama`, `litellm-lmstudio`, `litellm-openai`, `litellm-openrouter` |
+| Embeddings | `EmbeddingFactory` | `watsonx`, `fastembed`, `litellm`, `litellm-watsonx`, `litellm-ollama`, `litellm-lmstudio`, `litellm-openai`, `litellm-openrouter` |
 | Reranker | `RerankerFactory` | `sentence-transformers`, `litellm`, `litellm-watsonx` |
 | Vector store | `VectorStoreFactory` | `opensearch`, `chroma`, `qdrant` |
 
@@ -251,14 +251,14 @@ All settings live in `src/settings.py`, overridable via `OLLEN_RAG_*` environmen
 | `OLLEN_RAG_WATSONX_MAX_NEW_TOKENS` | `800` | Max generated tokens |
 | `OLLEN_RAG_WATSONX_TEMPERATURE` | `0.1` | LLM temperature |
 | `OLLEN_RAG_WATSONX_REPETITION_PENALTY` | `1.15` | Penalizes repeated tokens; >1.3 garbles output |
-| `OLLEN_RAG_EMBEDDING_PROVIDER` | `watsonx` | `watsonx`, `fastembed`, `litellm`, `litellm-watsonx`, `litellm-ollama`, `litellm-openai`, `litellm-openrouter` |
-| `OLLEN_RAG_LLM_PROVIDER` | `watsonx` | `watsonx`, `litellm`, `litellm-watsonx`, `litellm-ollama`, `litellm-openai`, `litellm-openrouter` |
-| `OLLEN_RAG_RERANKER_PROVIDER` | `sentence-transformers` | `sentence-transformers`, `litellm`, `litellm-watsonx` (Ollama has no rerank endpoint) |
+| `OLLEN_RAG_EMBEDDING_PROVIDER` | `watsonx` | `watsonx`, `fastembed`, `litellm`, `litellm-watsonx`, `litellm-ollama`, `litellm-lmstudio`, `litellm-openai`, `litellm-openrouter` |
+| `OLLEN_RAG_LLM_PROVIDER` | `watsonx` | `watsonx`, `litellm`, `litellm-watsonx`, `litellm-ollama`, `litellm-lmstudio`, `litellm-openai`, `litellm-openrouter` |
+| `OLLEN_RAG_RERANKER_PROVIDER` | `sentence-transformers` | `sentence-transformers`, `litellm`, `litellm-watsonx` (Ollama / LM Studio have no rerank endpoint) |
 | `OLLEN_RAG_LITELLM_MODEL` | (empty) | LiteLLM model string for the generic LLM provider, e.g. `openai/gpt-4o` |
 | `OLLEN_RAG_LITELLM_API_BASE` | (empty) | Endpoint override; shared fallback for the two below |
 | `OLLEN_RAG_LITELLM_API_KEY` | (empty) | API key; shared fallback for the two below |
-| `OLLEN_RAG_LITELLM_MAX_NEW_TOKENS` | `800` | Generation cap for `litellm` and `litellm-ollama` |
-| `OLLEN_RAG_LITELLM_TEMPERATURE` | `0.1` | Sampling temperature for `litellm` and `litellm-ollama` |
+| `OLLEN_RAG_LITELLM_MAX_NEW_TOKENS` | `800` | Generation cap for `litellm`, `litellm-ollama`, and `litellm-lmstudio` |
+| `OLLEN_RAG_LITELLM_TEMPERATURE` | `0.1` | Sampling temperature for `litellm`, `litellm-ollama`, and `litellm-lmstudio` |
 | `OLLEN_RAG_LITELLM_EMBEDDING_MODEL` | (empty) | LiteLLM model string for the generic embedding provider |
 | `OLLEN_RAG_LITELLM_EMBEDDING_API_BASE` | (empty) | Embedding endpoint; falls back to `OLLEN_RAG_LITELLM_API_BASE` |
 | `OLLEN_RAG_LITELLM_EMBEDDING_API_KEY` | (empty) | Embedding key; falls back to `OLLEN_RAG_LITELLM_API_KEY` |
@@ -280,6 +280,10 @@ All settings live in `src/settings.py`, overridable via `OLLEN_RAG_*` environmen
 | `OLLEN_RAG_OLLAMA_API_BASE` | `http://localhost:11434` | Local Ollama endpoint |
 | `OLLEN_RAG_OLLAMA_MODEL` | `llama3.1` | Bare Ollama chat model tag (connector adds `ollama/`) |
 | `OLLEN_RAG_OLLAMA_EMBEDDING_MODEL` | `nomic-embed-text` | Bare Ollama embedding model tag |
+| `OLLEN_RAG_LMSTUDIO_API_BASE` | `http://localhost:1234/v1` | Local LM Studio OpenAI-compatible endpoint (use `host.docker.internal` from Docker) |
+| `OLLEN_RAG_LMSTUDIO_API_KEY` | (empty) | Optional; set if LM Studio "Require auth" is on |
+| `OLLEN_RAG_LMSTUDIO_MODEL` | (empty) | Bare LM Studio chat model id (connector adds `lm_studio/`) |
+| `OLLEN_RAG_LMSTUDIO_EMBEDDING_MODEL` | (empty) | Bare LM Studio embedding model id |
 | `OLLEN_RAG_FASTEMBED_MODEL_NAME` | `BAAI/bge-small-en-v1.5` | fastembed model (local embeddings) |
 | `OLLEN_RAG_VECTOR_STORE` | `opensearch` | `opensearch` (dense+sparse+hybrid), `chroma` (embedded, dense-only), or `qdrant` (dense). Process-global |
 | `OLLEN_RAG_CHROMA_PATH` | `./chroma_db` | On-disk location for the embedded Chroma store |

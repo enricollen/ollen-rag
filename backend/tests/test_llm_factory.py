@@ -119,7 +119,7 @@ def _stub_completion(captured: dict, text: str = "risposta"):
     return _completion
 
 def test_factory_registers_litellm_providers():
-    for key in ("litellm", "litellm-watsonx", "litellm-ollama"):
+    for key in ("litellm", "litellm-watsonx", "litellm-ollama", "litellm-lmstudio"):
         assert key in llm_mod.LLMConnectorFactory._registry
 
 def test_generic_litellm_passes_model_string_through(monkeypatch):
@@ -246,3 +246,45 @@ def test_create_llm_wires_litellm_ollama_connector():
     model = llm_mod.create_llm(Settings(_env_file=None, llm_provider="litellm-ollama"))
     assert isinstance(model.connector, lite_mod.LiteLLMOllamaConnector)
     assert model.model_name == "ollama/llama3.1"
+
+def test_litellm_lmstudio_prefixes_model_and_sends_api_base(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(lite_mod, "completion", _stub_completion(captured))
+    s = Settings(
+        _env_file=None,
+        lmstudio_model="llama-3.2-3b-instruct",
+        lmstudio_api_base="http://host.docker.internal:1234/v1",
+    )
+    connector = lite_mod.LiteLLMLmStudioConnector(settings=s)
+
+    assert connector.complete("Domanda?") == "risposta"
+    assert captured["model"] == "lm_studio/llama-3.2-3b-instruct"
+    assert captured["api_base"] == "http://host.docker.internal:1234/v1"
+    assert "api_key" not in captured
+
+def test_litellm_lmstudio_sends_optional_api_key(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(lite_mod, "completion", _stub_completion(captured))
+    s = Settings(
+        _env_file=None,
+        lmstudio_model="mistral",
+        lmstudio_api_key="lm-studio",
+    )
+    lite_mod.LiteLLMLmStudioConnector(settings=s).complete("ciao")
+    assert captured["api_key"] == "lm-studio"
+
+def test_litellm_lmstudio_keeps_existing_prefix():
+    s = Settings(_env_file=None, lmstudio_model="lm_studio/already-prefixed")
+    connector = lite_mod.LiteLLMLmStudioConnector(settings=s)
+    assert connector.model_name == "lm_studio/already-prefixed"
+    assert connector.max_new_tokens == s.litellm_max_new_tokens
+
+def test_litellm_lmstudio_requires_model():
+    with pytest.raises(ValueError, match="OLLEN_RAG_LMSTUDIO_MODEL"):
+        lite_mod.LiteLLMLmStudioConnector(settings=Settings(_env_file=None, lmstudio_model=""))
+
+def test_create_llm_wires_litellm_lmstudio_connector():
+    s = Settings(_env_file=None, llm_provider="litellm-lmstudio", lmstudio_model="phi-3")
+    model = llm_mod.create_llm(s)
+    assert isinstance(model.connector, lite_mod.LiteLLMLmStudioConnector)
+    assert model.model_name == "lm_studio/phi-3"

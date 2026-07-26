@@ -1,8 +1,9 @@
 """LiteLLM-backed rerank connectors: one call surface for every rerank vendor LiteLLM supports
 (cohere, jina_ai, azure_ai, together_ai, voyage, infinity, watsonx, ...).
 
-Mirrors src/providers/llm/litellm.py. Ollama has no rerank endpoint, so there is no
-litellm-ollama connector here; use the local "sentence-transformers" provider instead.
+Mirrors src/providers/llm/litellm.py. ollama / lm studio have no rerank endpoint, so there is
+no litellm-ollama / litellm-lmstudio connector here; use the local "sentence-transformers"
+provider instead.
 """
 import logging
 import os

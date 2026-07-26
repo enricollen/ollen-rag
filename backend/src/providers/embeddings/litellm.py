@@ -181,3 +181,23 @@ def create_litellm_ollama_embedding(settings: Settings) -> BaseEmbedding:
     ensure_model(settings.ollama_api_base, model)
     call_kwargs = {"model": f"ollama/{model}", "api_base": settings.ollama_api_base}
     return LiteLLMEmbedding(model_name=model, call_kwargs=call_kwargs)
+
+@EmbeddingFactory.register("litellm-lmstudio", model_field="lmstudio_embedding_model")
+def create_litellm_lmstudio_embedding(settings: Settings) -> BaseEmbedding:
+    """local lm studio embeddings through litellm. needs an api_base and a loaded embedding model.
+
+    uses its own model tag: OLLEN_RAG_LMSTUDIO_MODEL is a chat model and cannot embed.
+    uses litellm's native "lm_studio/" route. an optional api_key covers lm studio's auth toggle.
+    """
+    if not settings.lmstudio_embedding_model:
+        raise ValueError(
+            "OLLEN_RAG_LMSTUDIO_EMBEDDING_MODEL must be set when "
+            "OLLEN_RAG_EMBEDDING_PROVIDER=litellm-lmstudio"
+        )
+    raw = settings.lmstudio_embedding_model
+    model = raw if raw.startswith("lm_studio/") else f"lm_studio/{raw}"
+    call_kwargs = _optional(
+        {"model": model, "api_base": settings.lmstudio_api_base},
+        api_key=settings.lmstudio_api_key,
+    )
+    return LiteLLMEmbedding(model_name=raw, call_kwargs=call_kwargs)

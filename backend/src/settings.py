@@ -58,11 +58,19 @@ class Settings(BaseSettings):
     ollama_api_base: str = "http://localhost:11434"
     ollama_model: str = "llama3.1"
     ollama_embedding_model: str = "nomic-embed-text"
+    # lm studio (served via litellm); models are bare tags as shown in the lm studio ui, the
+    # "lm_studio/" prefix is added by the connector. chat and embedding models are separate
+    # loads in lm studio, so embeddings get their own tag. api_key is optional (lm studio
+    # often accepts any non-empty dummy when "require auth" is on).
+    lmstudio_api_base: str = "http://localhost:1234/v1"
+    lmstudio_api_key: str = ""
+    lmstudio_model: str = ""
+    lmstudio_embedding_model: str = ""
     # provider selection: empty until explicitly chosen (wizard or env var) -- no vendor is
     # silently assumed, so a fresh deploy fails loudly ("no provider configured") instead of
     # quietly defaulting to a cloud vendor nobody picked and failing deep inside its SDK.
-    embedding_provider: str = ""  # watsonx | fastembed | litellm | litellm-watsonx | litellm-ollama | litellm-openai | litellm-openrouter
-    llm_provider: str = ""  # watsonx | litellm | litellm-watsonx | litellm-ollama | litellm-openai | litellm-openrouter
+    embedding_provider: str = ""  # watsonx | fastembed | litellm | litellm-watsonx | litellm-ollama | litellm-lmstudio | litellm-openai | litellm-openrouter
+    llm_provider: str = ""  # watsonx | litellm | litellm-watsonx | litellm-ollama | litellm-lmstudio | litellm-openai | litellm-openrouter
     fastembed_model_name: str = "BAAI/bge-small-en-v1.5"
     # Local cache for fastembed ONNX model files; persists downloads so the model is fetched from
     # the hub once, then reused offline. A relative path valid in both Docker (writable /app) and a
@@ -100,7 +108,8 @@ class Settings(BaseSettings):
     similarity_threshold: float = 0.0
     rerank_top_n: int = 4
     # sentence-transformers (local cross-encoder) | litellm | litellm-watsonx.
-    # Ollama exposes no rerank endpoint, so there is no litellm-ollama reranker.
+    # ollama / lm studio expose no rerank endpoint, so there is no litellm-ollama /
+    # litellm-lmstudio reranker.
     reranker_provider: str = "sentence-transformers"
     # Multilingual cross-encoder (mMARCO, Apache-2.0). The English-only ms-marco model it replaced
     # measurably degrades ranking on a non-English corpus; see config/reranker_models.yaml.

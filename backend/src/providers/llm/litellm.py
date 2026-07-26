@@ -191,3 +191,33 @@ class LiteLLMOllamaConnector(LiteLLMConnector):
     def _call_kwargs(self) -> dict[str, Any]:
         """Ollama is unauthenticated; the api_base is the only thing it needs."""
         return {"model": self.model_name, "api_base": self._settings.ollama_api_base}
+
+@LLMConnectorFactory.register("litellm-lmstudio")
+class LiteLLMLmStudioConnector(LiteLLMConnector):
+    """local lm studio through litellm. needs an api_base and a loaded model -- no cloud key.
+
+    uses litellm's native "lm_studio/" route (openai-compatible local server). reuses the
+    generic OLLEN_RAG_LITELLM_MAX_NEW_TOKENS / _TEMPERATURE rather than introducing
+    lm studio-specific twins. an optional api_key covers lm studio's "require auth" toggle.
+    """
+
+    def __init__(self, settings: Settings | None = None) -> None:
+        super().__init__(settings)
+        if not self._settings.lmstudio_model:
+            raise ValueError(
+                "OLLEN_RAG_LMSTUDIO_MODEL must be set when OLLEN_RAG_LLM_PROVIDER=litellm-lmstudio"
+            )
+        raw = self._settings.lmstudio_model
+        self.model_name = raw if raw.startswith("lm_studio/") else f"lm_studio/{raw}"
+        self.max_new_tokens = self._settings.litellm_max_new_tokens
+        self.temperature = self._settings.litellm_temperature
+
+    def _call_kwargs(self) -> dict[str, Any]:
+        """api_base is required; api_key is only sent when configured (lm studio auth toggle)."""
+        kwargs: dict[str, Any] = {
+            "model": self.model_name,
+            "api_base": self._settings.lmstudio_api_base,
+        }
+        if self._settings.lmstudio_api_key:
+            kwargs["api_key"] = self._settings.lmstudio_api_key
+        return kwargs

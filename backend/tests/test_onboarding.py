@@ -17,6 +17,18 @@ def test_is_configured_true_for_ollama():
     s = Settings(_env_file=None, llm_provider="litellm-ollama", embedding_provider="fastembed")
     assert is_configured(s) is True
 
+def test_is_configured_for_lmstudio_requires_model():
+    """LM Studio is local/keyless but still needs the loaded model id before it's ready."""
+    s = Settings(_env_file=None, llm_provider="litellm-lmstudio", embedding_provider="fastembed")
+    assert is_configured(s) is False
+    s = Settings(
+        _env_file=None,
+        llm_provider="litellm-lmstudio",
+        lmstudio_model="phi-3",
+        embedding_provider="fastembed",
+    )
+    assert is_configured(s) is True
+
 def test_is_configured_false_when_embedding_provider_unset():
     """A keyless, working LLM is not enough on its own: an unset (or unconfigured) embedding
     provider must still block 'configured', or ingestion silently fails against whatever the

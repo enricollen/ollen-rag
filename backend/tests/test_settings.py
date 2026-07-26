@@ -43,6 +43,10 @@ def test_litellm_settings_defaults():
     assert s.litellm_temperature == 0.1
     assert s.ollama_api_base == "http://localhost:11434"
     assert s.ollama_model == "llama3.1"
+    assert s.lmstudio_api_base == "http://localhost:1234/v1"
+    assert s.lmstudio_model == ""
+    assert s.lmstudio_embedding_model == ""
+    assert s.lmstudio_api_key == ""
 
 def test_litellm_settings_env_override(monkeypatch):
     """OLLEN_RAG_LITELLM_* env vars must override the defaults."""
