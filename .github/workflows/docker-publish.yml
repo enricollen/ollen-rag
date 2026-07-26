@@ -1,10 +1,12 @@
 name: docker-publish
 
 # Builds and publishes the CPU-flavored image to GHCR so `docker compose pull` works without a
-# 15-20 minute local build (LibreOffice + torch + baked models + the Ollama pull). GPU users still
-# build locally with `docker compose build --build-arg TORCH_FLAVOR=gpu` -- that flavor is not
-# published here since the CUDA wheels roughly double image size and build time for a variant most
-# CI runners can't even exercise (no GPU on the runner).
+# 15-20 minute local build (LibreOffice + torch + baked models + the Ollama pull). The Dockerfile
+# skips CUDA torch on TORCH_FLAVOR=cpu (no nvidia-* download) and uses a multi-stage copy so uv
+# never lands in the runtime image. GPU users still build locally with
+# `docker compose build --build-arg TORCH_FLAVOR=gpu` -- that flavor is not published here since
+# the CUDA wheels roughly double image size and build time for a variant most CI runners can't
+# even exercise (no GPU on the runner).
 on:
   push:
     branches: [main, develop]
