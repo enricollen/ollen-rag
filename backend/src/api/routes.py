@@ -91,7 +91,7 @@ def ready() -> dict:
     container awaiting first-run setup reads as "not ready" rather than "unhealthy"."""
     if is_configured(get_settings()):
         return {"status": "ready"}
-    raise HTTPException(status_code=503, detail="Not configured yet -- finish setup at /ui/ or set the provider env vars.")
+    raise HTTPException(status_code=503, detail="Not configured yet -- finish setup at / or set the provider env vars.")
 
 @router.get("/api/v1/strategies")
 def strategies() -> dict:
