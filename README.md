@@ -241,6 +241,9 @@ Each strategy stores its chunks in a dedicated index named after the strategy, s
 
 All settings live in `src/settings.py`, overridable via `OLLEN_RAG_*` environment variables (a local `.env` is honored; see `.env.example`).
 
+<details>
+<summary>Full environment variable reference (click to expand)</summary>
+
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `OLLEN_RAG_WATSONX_URL` | `https://eu-de.ml.cloud.ibm.com` | watsonx.ai endpoint |
@@ -314,6 +317,8 @@ All settings live in `src/settings.py`, overridable via `OLLEN_RAG_*` environmen
 | `OLLEN_RAG_PROMPTS_DIR` | `config/prompts` | Prompt templates directory |
 | `OLLEN_RAG_DEFAULT_PROMPT_NAME` | `rag_answer_en` | Default prompt template (`rag_answer_en` English, `rag_answer_it` Italian) |
 | `OLLEN_RAG_LOG_LEVEL` | `INFO` | `DEBUG` for per-chunk detail |
+
+</details>
 
 ## Tests
 
