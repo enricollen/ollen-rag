@@ -4,6 +4,21 @@ import { chunkingSummary } from '../lib/format'
 import { Pill } from './Pill'
 import { AlertTriangleIcon, CpuIcon, DatabaseIcon, FileTextIcon, PackageIcon, ScissorsIcon, TrashIcon } from './icons'
 
+// Backend errors here are almost always "the store's container isn't running" (DNS/connection
+// failures against a compose service name), not a real fault -- translate those into an
+// actionable hint instead of showing raw exception text like "[Errno -3] Temporary failure in
+// name resolution".
+const _UNREACHABLE_PATTERN = /name resolution|nodename nor servname|Connection refused|Failed to establish|ConnectError|Connect(ion|Timeout)|timed out|Errno -?[23]/i
+
+function friendlyStoreError(store: string, error?: string): string {
+  if (!error || _UNREACHABLE_PATTERN.test(error)) {
+    return store === 'opensearch' || store === 'qdrant'
+      ? `maybe it's not running yet \u2014 try \`docker compose --profile ${store} up -d\``
+      : "maybe it's not running yet \u2014 check the container/service is up"
+  }
+  return error
+}
+
 function OverviewCard({
   store,
   ix,
@@ -135,7 +150,7 @@ export function KbOverview({
           </div>
           {!st.available ? (
             <div className="text-warn text-sm flex items-center gap-1.5">
-              <AlertTriangleIcon size={14} /> unavailable &mdash; {st.error || 'cannot reach this store'}
+              <AlertTriangleIcon size={14} /> unavailable &mdash; {friendlyStoreError(st.vector_store, st.error)}
             </div>
           ) : !st.indices.length ? (
             <div className="text-ink-faint text-sm py-1">No indexes in this store yet.</div>

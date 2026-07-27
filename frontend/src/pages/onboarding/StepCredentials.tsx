@@ -5,6 +5,7 @@ import { Button } from '../../components/Button'
 import { Field, TextInput } from '../../components/Field'
 import { Spinner } from '../../components/Misc'
 import { CheckIcon, XIcon } from '../../components/icons'
+import { friendlyConnectionError } from '../../lib/format'
 import { toast } from '../../store/toastStore'
 import type { LlmChoice } from './providers'
 
@@ -32,11 +33,12 @@ export function StepCredentials({
       const changes = { llm_provider: choice.id, ...creds }
       const res = await endpoints.onboardingTest({ target: 'llm', changes })
       setTestState(res.ok ? 'ok' : 'fail')
-      setDetail(res.ok ? 'Connected' : res.detail)
+      setDetail(res.ok ? 'Connected' : friendlyConnectionError(res.detail))
     } catch (e) {
       setTestState('fail')
-      setDetail(errorMessage(e))
-      toast(errorMessage(e), 'error')
+      const friendly = friendlyConnectionError(errorMessage(e))
+      setDetail(friendly)
+      toast(friendly, 'error')
     }
   }
 
