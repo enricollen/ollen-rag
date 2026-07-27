@@ -53,6 +53,13 @@ class Settings(BaseSettings):
     openrouter_max_new_tokens: int = 800
     openrouter_temperature: float = 0.1
     openrouter_embedding_model: str = ""
+    # Anthropic (served via LiteLLM). LLM-only -- Anthropic has no embeddings/rerank API. Model
+    # tags are bare names (e.g. "claude-opus-4-20250514"); the "anthropic/" prefix is added by
+    # the connector.
+    anthropic_model: str = ""
+    anthropic_api_key: str = ""
+    anthropic_max_new_tokens: int = 800
+    anthropic_temperature: float = 0.1
     # Ollama (served via LiteLLM); models are bare tags, the "ollama/" prefix is added by the
     # connector. The chat model cannot embed, so embeddings get their own tag.
     ollama_api_base: str = "http://localhost:11434"
@@ -70,7 +77,7 @@ class Settings(BaseSettings):
     # silently assumed, so a fresh deploy fails loudly ("no provider configured") instead of
     # quietly defaulting to a cloud vendor nobody picked and failing deep inside its SDK.
     embedding_provider: str = ""  # watsonx | fastembed | litellm | litellm-watsonx | litellm-ollama | litellm-lmstudio | litellm-openai | litellm-openrouter
-    llm_provider: str = ""  # watsonx | litellm | litellm-watsonx | litellm-ollama | litellm-lmstudio | litellm-openai | litellm-openrouter
+    llm_provider: str = ""  # watsonx | litellm | litellm-watsonx | litellm-ollama | litellm-lmstudio | litellm-openai | litellm-openrouter | litellm-anthropic
     fastembed_model_name: str = "BAAI/bge-small-en-v1.5"
     # Local cache for fastembed ONNX model files; persists downloads so the model is fetched from
     # the hub once, then reused offline. A relative path valid in both Docker (writable /app) and a

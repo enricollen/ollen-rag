@@ -68,6 +68,15 @@ export const LLM_CHOICES: LlmChoice[] = [
     ],
   },
   {
+    id: 'litellm-anthropic',
+    label: 'Anthropic',
+    description: 'Claude models via your Anthropic API key.',
+    fields: [
+      { key: 'anthropic_model', label: 'Model (e.g. claude-opus-4-20250514)' },
+      { key: 'anthropic_api_key', label: 'API key', secret: true },
+    ],
+  },
+  {
     id: 'litellm',
     label: 'Other (LiteLLM)',
     description: 'Point at any LiteLLM-compatible endpoint.',

@@ -31,6 +31,8 @@ def _llm_ready(settings: Settings) -> bool:
         return bool(settings.openai_model)
     if provider == "litellm-openrouter":
         return bool(settings.openrouter_model)
+    if provider == "litellm-anthropic":
+        return bool(settings.anthropic_model)
     if provider == "litellm-lmstudio":
         # local / keyless, but the model id is whatever is loaded in lm studio — no safe default.
         return bool(settings.lmstudio_model)

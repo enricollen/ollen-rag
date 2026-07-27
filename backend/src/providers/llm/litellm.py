@@ -221,3 +221,28 @@ class LiteLLMLmStudioConnector(LiteLLMConnector):
         if self._settings.lmstudio_api_key:
             kwargs["api_key"] = self._settings.lmstudio_api_key
         return kwargs
+
+@LLMConnectorFactory.register("litellm-anthropic")
+class LiteLLMAnthropicConnector(LiteLLMConnector):
+    """Anthropic Claude through LiteLLM. LLM-only -- Anthropic has no embeddings/rerank API, so
+    (unlike OpenAI/OpenRouter) this connector has no embedding-model counterpart.
+
+    Uses the dedicated OLLEN_RAG_ANTHROPIC_* settings so credentials stay in their own namespace.
+    The bare model name (e.g. "claude-opus-4-20250514") is prefixed with "anthropic/" unless the
+    caller already included it, which is what LiteLLM needs to route to Anthropic's API.
+    """
+
+    def __init__(self, settings: Settings | None = None) -> None:
+        super().__init__(settings)
+        if not self._settings.anthropic_model:
+            raise ValueError("OLLEN_RAG_ANTHROPIC_MODEL must be set when OLLEN_RAG_LLM_PROVIDER=litellm-anthropic")
+        raw = self._settings.anthropic_model
+        self.model_name = raw if raw.startswith("anthropic/") else f"anthropic/{raw}"
+        self.max_new_tokens = self._settings.anthropic_max_new_tokens
+        self.temperature = self._settings.anthropic_temperature
+
+    def _call_kwargs(self) -> dict[str, Any]:
+        kwargs: dict[str, Any] = {"model": self.model_name}
+        if self._settings.anthropic_api_key:
+            kwargs["api_key"] = self._settings.anthropic_api_key
+        return kwargs

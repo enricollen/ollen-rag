@@ -58,7 +58,7 @@ export const SECTIONS: SectionDef[] = [
     control: true,
     note: 'Provider selection — drives which blocks below are active.',
     fields: [
-      T('llm_provider', 'select', { pick: ['watsonx', 'litellm', 'litellm-watsonx', 'litellm-ollama', 'litellm-lmstudio', 'litellm-openai', 'litellm-openrouter'] }),
+      T('llm_provider', 'select', { pick: ['watsonx', 'litellm', 'litellm-watsonx', 'litellm-ollama', 'litellm-lmstudio', 'litellm-openai', 'litellm-openrouter', 'litellm-anthropic'] }),
       T('embedding_provider', 'select', {
         pick: ['watsonx', 'fastembed', 'litellm', 'litellm-watsonx', 'litellm-ollama', 'litellm-lmstudio', 'litellm-openai', 'litellm-openrouter'],
       }),
@@ -143,6 +143,18 @@ export const SECTIONS: SectionDef[] = [
       T('openrouter_max_new_tokens', 'number'),
       T('openrouter_temperature', 'number'),
       T('openrouter_embedding_model', 'text', { req: true, activeWhen: (s) => s.embedding_provider === 'litellm-openrouter' }),
+    ],
+  },
+  {
+    id: 'anthropic',
+    title: '§7b · Anthropic backend',
+    gate: (s) => s.llm_provider === 'litellm-anthropic',
+    note: 'LLM only — Anthropic has no embeddings/rerank API.',
+    fields: [
+      T('anthropic_model', 'text', { req: true }),
+      T('anthropic_api_key', 'password', { req: true }),
+      T('anthropic_max_new_tokens', 'number'),
+      T('anthropic_temperature', 'number'),
     ],
   },
   {

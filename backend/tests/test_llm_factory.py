@@ -119,7 +119,7 @@ def _stub_completion(captured: dict, text: str = "risposta"):
     return _completion
 
 def test_factory_registers_litellm_providers():
-    for key in ("litellm", "litellm-watsonx", "litellm-ollama", "litellm-lmstudio"):
+    for key in ("litellm", "litellm-watsonx", "litellm-ollama", "litellm-lmstudio", "litellm-anthropic"):
         assert key in llm_mod.LLMConnectorFactory._registry
 
 def test_generic_litellm_passes_model_string_through(monkeypatch):
@@ -288,3 +288,28 @@ def test_create_llm_wires_litellm_lmstudio_connector():
     model = llm_mod.create_llm(s)
     assert isinstance(model.connector, lite_mod.LiteLLMLmStudioConnector)
     assert model.model_name == "lm_studio/phi-3"
+
+def test_litellm_anthropic_prefixes_model_and_sends_api_key(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(lite_mod, "completion", _stub_completion(captured))
+    s = Settings(_env_file=None, anthropic_model="claude-opus-4-20250514", anthropic_api_key="sk-ant-x")
+    connector = lite_mod.LiteLLMAnthropicConnector(settings=s)
+
+    assert connector.complete("Domanda?") == "risposta"
+    assert captured["model"] == "anthropic/claude-opus-4-20250514"
+    assert captured["api_key"] == "sk-ant-x"
+
+def test_litellm_anthropic_keeps_existing_prefix():
+    s = Settings(_env_file=None, anthropic_model="anthropic/already-prefixed")
+    connector = lite_mod.LiteLLMAnthropicConnector(settings=s)
+    assert connector.model_name == "anthropic/already-prefixed"
+
+def test_litellm_anthropic_requires_model():
+    with pytest.raises(ValueError, match="OLLEN_RAG_ANTHROPIC_MODEL"):
+        lite_mod.LiteLLMAnthropicConnector(settings=Settings(_env_file=None, anthropic_model=""))
+
+def test_create_llm_wires_litellm_anthropic_connector():
+    s = Settings(_env_file=None, llm_provider="litellm-anthropic", anthropic_model="claude-opus-4-20250514")
+    model = llm_mod.create_llm(s)
+    assert isinstance(model.connector, lite_mod.LiteLLMAnthropicConnector)
+    assert model.model_name == "anthropic/claude-opus-4-20250514"
