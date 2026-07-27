@@ -13,7 +13,7 @@ export const STRATEGIES: StrategyDef[] = [
   {
     name: 'sentence',
     desc: 'Splits on sentence boundaries. Simple, predictable, good default for prose.',
-    example: 'Il protocollo assegna codici colore.| In base alla gravita, i codici sono rosso e verde.|',
+    example: 'The protocol assigns color codes.| Depending on severity, the codes are red and green.|',
   },
   {
     name: 'token',
@@ -23,17 +23,17 @@ export const STRATEGIES: StrategyDef[] = [
   {
     name: 'semantic',
     desc: 'Groups sentences by embedding similarity; splits where meaning shifts, not at a fixed size.',
-    example: 'Il triage assegna codici colore. I codici indicano priorita.| La pizza napoletana usa farina e pomodoro.|',
+    example: 'Triage assigns color codes. The codes indicate priority.| Neapolitan pizza uses flour and tomato.|',
   },
   {
     name: 'window',
     desc: 'One sentence per chunk, but stores surrounding sentences as context for the LLM at answer time.',
-    example: 'node: "I codici indicano priorita."  window: [prev, this, next]',
+    example: 'node: "The codes indicate priority."  window: [prev, this, next]',
   },
   {
     name: 'llm',
     desc: 'Uses the LLM to judge topic boundaries between sentences — produces the most semantically coherent chunks. Slower than other strategies (one LLM call per boundary).',
-    example: '"Il protocollo assegna codici colore. I codici indicano priorita."| "La pizza napoletana usa farina…"|',
+    example: '"The protocol assigns color codes. The codes indicate priority."| "Neapolitan pizza uses flour…"|',
     warn: 'Significantly slower — one LLM call per sentence boundary.',
   },
 ]

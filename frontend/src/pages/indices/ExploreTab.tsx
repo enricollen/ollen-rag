@@ -44,8 +44,10 @@ export function ExploreTab() {
   const [total, setTotal] = useState(0)
   const [loadingDocs, setLoadingDocs] = useState(false)
   const [loadingBuckets, setLoadingBuckets] = useState(false)
+  const [loadingOverview, setLoadingOverview] = useState(false)
 
   async function refreshOverview() {
+    setLoadingOverview(true)
     try {
       const ov = await endpoints.indicesOverview()
       setOverview(ov)
@@ -53,6 +55,8 @@ export function ExploreTab() {
       if (!stillExists) setCurrentIndex(null)
     } catch (e) {
       toast(errorMessage(e), 'error')
+    } finally {
+      setLoadingOverview(false)
     }
   }
 
@@ -174,7 +178,13 @@ export function ExploreTab() {
           </Button>
         }
       >
-        <KbOverview overview={overview} selectable deletable selectedIndex={currentIndex} onSelect={selectIndex} onDelete={deleteIndex} />
+        {loadingOverview && !overview ? (
+          <EmptyState>
+            <Spinner />
+          </EmptyState>
+        ) : (
+          <KbOverview overview={overview} selectable deletable selectedIndex={currentIndex} onSelect={selectIndex} onDelete={deleteIndex} />
+        )}
       </Panel>
 
       <Panel title="Buckets" subtitle="Select a bucket to see the documents it contains. Documents ingested without a bucket appear under No bucket.">
