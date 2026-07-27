@@ -21,6 +21,8 @@ litellm-watsonx:
 litellm-ollama:
   - nomic-embed-text
   - mxbai-embed-large
+# lm studio: free-form — model ids are whatever is loaded in the local server ui.
+litellm-lmstudio: []
 # Free-form: any LiteLLM model string, e.g. openai/text-embedding-3-small
 litellm: []
 # OpenAI / OpenAI-compatible API. Bare names only; the "openai/" prefix is added at call time.

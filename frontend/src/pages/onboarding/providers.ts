@@ -30,6 +30,16 @@ export const LLM_CHOICES: LlmChoice[] = [
     fields: [],
   },
   {
+    id: 'litellm-lmstudio',
+    label: 'Local (LM Studio)',
+    description: 'No account needed — point at LM Studio\'s local server.',
+    fields: [
+      { key: 'lmstudio_api_base', label: 'API base (default http://localhost:1234/v1)' },
+      { key: 'lmstudio_model', label: 'Model id (as shown in LM Studio)' },
+      { key: 'lmstudio_api_key', label: 'API key (optional)', secret: true },
+    ],
+  },
+  {
     id: 'watsonx',
     label: 'watsonx.ai',
     description: "IBM's enterprise LLM platform.",
@@ -88,6 +98,17 @@ export const EMBEDDING_CHOICES: ModalityChoice[] = [
     description: 'Local embedding models via Ollama.',
     keyless: true,
     fields: [{ key: 'ollama_embedding_model', label: 'Model (e.g. nomic-embed-text)' }],
+  },
+  {
+    id: 'litellm-lmstudio',
+    label: 'LM Studio',
+    description: 'Local embedding models via LM Studio\'s server.',
+    keyless: true,
+    fields: [
+      { key: 'lmstudio_api_base', label: 'API base (default http://localhost:1234/v1)' },
+      { key: 'lmstudio_embedding_model', label: 'Embedding model id (as shown in LM Studio)' },
+      { key: 'lmstudio_api_key', label: 'API key (optional)', secret: true },
+    ],
   },
   {
     id: 'watsonx',

@@ -34,6 +34,7 @@ def test_none_model_always_passes():
 def test_embedding_yaml_loads_with_litellm_providers():
     choices = load_model_choices(EMBEDDING_MODELS_CONFIG_PATH)
     assert choices["litellm"] == []
+    assert choices["litellm-lmstudio"] == []
     assert "nomic-embed-text" in choices["litellm-ollama"]
     assert "ibm/slate-125m-english-rtrvr" in choices["litellm-watsonx"]
 

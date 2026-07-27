@@ -31,6 +31,9 @@ def _llm_ready(settings: Settings) -> bool:
         return bool(settings.openai_model)
     if provider == "litellm-openrouter":
         return bool(settings.openrouter_model)
+    if provider == "litellm-lmstudio":
+        # local / keyless, but the model id is whatever is loaded in lm studio — no safe default.
+        return bool(settings.lmstudio_model)
     if provider.startswith("litellm"):
         return bool(settings.litellm_model and (settings.litellm_api_key or settings.litellm_api_base))
     return False
@@ -48,6 +51,8 @@ def _embedding_ready(settings: Settings) -> bool:
         return bool(settings.openai_embedding_model)
     if provider == "litellm-openrouter":
         return bool(settings.openrouter_embedding_model)
+    if provider == "litellm-lmstudio":
+        return bool(settings.lmstudio_embedding_model)
     if provider.startswith("litellm"):
         return bool(
             settings.litellm_embedding_model
