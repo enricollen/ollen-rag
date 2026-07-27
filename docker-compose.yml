@@ -26,7 +26,7 @@ services:
     #           count: all
     #           capabilities: [gpu]
     # No `environment:` block here on purpose: LLM/embedding provider default to "" (src/settings.py),
-    # so /api/v1/onboarding/status reports not-configured and the wizard at /ui/ (or your own
+    # so /api/v1/onboarding/status reports not-configured and the wizard at / (or your own
     # OLLEN_RAG_LLM_PROVIDER / OLLEN_RAG_EMBEDDING_PROVIDER env vars, for headless deploys) is what
     # actually turns this stack on. Every other field lives in .env (seeded once below) instead of
     # here, so the Settings UI can freely change it afterwards -- see the `command:` comment.
@@ -44,7 +44,7 @@ services:
     # container, localhost is the app itself. host browsers/tools use localhost:9201.
     command: >
       sh -c "mkdir -p /app/config-store &&
-             [ -s /app/config-store/.env ] || printf '%s\n' 'OLLEN_RAG_VECTOR_STORE=chroma' 'OLLEN_RAG_CHROMA_PATH=/app/data/chroma' 'OLLEN_RAG_OLLAMA_API_BASE=http://ollama:11434' 'OLLEN_RAG_OLLAMA_MODEL=gemma3:270m' 'OLLEN_RAG_OPENSEARCH_URL=http://opensearch:9200' 'OLLEN_RAG_OPENSEARCH_VERIFY_CERTS=false' 'OLLEN_RAG_QDRANT_URL=http://qdrant:6333' > /app/config-store/.env &&
+             [ -s /app/config-store/.env ] || printf '%s\\n' 'OLLEN_RAG_VECTOR_STORE=chroma' 'OLLEN_RAG_CHROMA_PATH=/app/data/chroma' 'OLLEN_RAG_OLLAMA_API_BASE=http://ollama:11434' 'OLLEN_RAG_OLLAMA_MODEL=gemma3:270m' 'OLLEN_RAG_OPENSEARCH_URL=http://opensearch:9200' 'OLLEN_RAG_OPENSEARCH_VERIFY_CERTS=false' 'OLLEN_RAG_QDRANT_URL=http://qdrant:6333' > /app/config-store/.env &&
              ln -sf /app/config-store/.env /app/.env &&
              exec uvicorn app:app --host 0.0.0.0 --port 8000"
     depends_on:

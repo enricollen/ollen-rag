@@ -103,7 +103,7 @@ COPY --from=python-builder --chown=appuser:appuser /app/.tesseract-rs /app/.tess
 
 # Flatten backend/ into /app so uvicorn app:app and relative paths (config/, .env) stay unchanged.
 COPY --chown=appuser:appuser backend/ .
-# Console at /ui/ always comes from the web-builder stage, never a stale local dist/.
+# Console at / always comes from the web-builder stage, never a stale local dist/.
 COPY --from=web-builder --chown=appuser:appuser /frontend/dist ./frontend/dist
 
 USER appuser

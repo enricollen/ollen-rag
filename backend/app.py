@@ -61,9 +61,9 @@ async def app_lifespan(app: FastAPI):
     logger.info("startup complete — ready to serve")
     from src.rag.onboarding import is_configured
     if is_configured(get_settings()):
-        logger.info("console: http://localhost:8000/ui/")
+        logger.info("console: http://localhost:8000/")
     else:
-        logger.info("setup required — open http://localhost:8000/ui/ to pick a provider, or set "
+        logger.info("setup required — open http://localhost:8000/ to pick a provider, or set "
                      "OLLEN_RAG_LLM_PROVIDER / OLLEN_RAG_EMBEDDING_PROVIDER and restart")
     yield
 
@@ -101,20 +101,21 @@ def create_app() -> FastAPI:
     app.include_router(onboarding_router)
     app.mount("/mcp", mcp_app)
     # React console (frontend/), built by the Dockerfile's web-builder stage / `npm run build` in
-    # Plain Python mode -- served at /ui/. Hash-routed SPA, so html=True's index.html fallback
-    # only ever needs to answer GET /ui/ itself.
-    app.mount("/ui", StaticFiles(directory=_ui_dist(), html=True), name="ui")
+    # Plain Python mode -- served at /. Hash-routed SPA, so html=True's index.html fallback only
+    # ever needs to answer GET / itself. Mounted last so it never shadows the API/MCP routes
+    # registered above -- Starlette matches routes in registration order, and only requests that
+    # miss every other route fall through to this catch-all mount.
+    app.mount("/", StaticFiles(directory=_ui_dist(), html=True), name="ui")
 
     @app.middleware("http")
     async def ui_shell_no_cache(request: Request, call_next):
         # index.html must not be cached -- it points at hashed asset filenames; a stale shell keeps
         # serving an old bundle even after a rebuild.
         response = await call_next(request)
-        path = request.url.path.rstrip("/")
-        if path in ("/ui",) or request.url.path.endswith("/ui/") or request.url.path.endswith("/index.html"):
-            if "/ui" in request.url.path:
-                response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-                response.headers["Pragma"] = "no-cache"
+        path = request.url.path
+        if path == "/" or path.endswith("/index.html"):
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
         return response
 
     @app.exception_handler(OllenRagError)

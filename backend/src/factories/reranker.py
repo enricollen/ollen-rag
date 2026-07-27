@@ -93,7 +93,7 @@ class RerankerFactory:
         """Raise if *provider* was never registered. The registry -- not the yaml catalog -- is the
         source of truth for which providers exist, so request handlers validate names against it."""
         if not provider:
-            raise ValueError("No reranker provider configured. Finish setup at /ui/, or set OLLEN_RAG_RERANKER_PROVIDER.")
+            raise ValueError("No reranker provider configured. Finish setup at /, or set OLLEN_RAG_RERANKER_PROVIDER.")
         if provider not in cls._registry:
             raise ValueError(f"Unknown reranker provider '{provider}'. Available providers: {sorted(cls._registry)}")
 

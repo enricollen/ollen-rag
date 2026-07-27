@@ -37,7 +37,7 @@ class EmbeddingFactory:
     def create(cls, provider: str, settings: Settings) -> BaseEmbedding:
         """Build the embedding model for *provider*, or raise listing known providers."""
         if not provider:
-            raise ValueError("No embedding provider configured. Finish setup at /ui/, or set OLLEN_RAG_EMBEDDING_PROVIDER.")
+            raise ValueError("No embedding provider configured. Finish setup at /, or set OLLEN_RAG_EMBEDDING_PROVIDER.")
         if provider not in cls._registry:
             raise ValueError(f"Unknown embedding provider '{provider}'. Available providers: {sorted(cls._registry)}")
         return cls._registry[provider](settings)

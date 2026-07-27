@@ -49,7 +49,7 @@ cp .env.example .env    # then fill in credentials
 
 Both ways of running the service below share the same code, the same first-run wizard, and the
 same config contract: `OLLEN_RAG_LLM_PROVIDER` and `OLLEN_RAG_EMBEDDING_PROVIDER` default to empty
-— no vendor is chosen until you pick one, whether that's through the wizard at `/ui/` or, for
+— no vendor is chosen until you pick one, whether that's through the wizard at `/` or, for
 headless/CI/production runs that never touch a browser, by setting those two env vars (plus their
 credentials) directly. `GET /ready` reflects that state (`503` until both are set); `GET /health`
 stays `200` the whole time, since the process itself is fine and just waiting on setup.
@@ -62,7 +62,7 @@ docker compose up
 ```
 
 Brings up the service + a bundled Ollama + on-disk Chroma — **no API keys required to build**. Open
-`http://localhost:8000/ui/`; a first-run wizard walks you through picking a provider and (for cloud
+`http://localhost:8000/`; a first-run wizard walks you through picking a provider and (for cloud
 providers) entering credentials, testing them, and saving. Config persists on a volume; saving
 applies immediately (no container restart) regardless of how the image is run. Add OpenSearch with
 `docker compose --profile opensearch up -d` — if you pick it in the wizard/Settings before that,
@@ -95,13 +95,13 @@ cd ../frontend && npm install && npm run build        # one-time: builds the con
 cd ../backend && uv run uvicorn app:app --reload
 ```
 
-The same wizard runs here too (visit `/ui/` before configuring). Saving settings applies live —
+The same wizard runs here too (visit `/` before configuring). Saving settings applies live —
 `get_settings()` is re-read on the very next request, no restart needed in any of these run modes
 (`--reload` additionally respawns the worker, purely for a clean dev slate). Point `OLLEN_RAG_*` at
 your own OpenSearch/Ollama/cloud as needed.
 
 The console (`frontend/`) is a Vite + React + TypeScript app that builds to static assets served by
-FastAPI at `/ui/` — the build step above only needs to be re-run when you change `frontend/` itself,
+FastAPI at `/` — the build step above only needs to be re-run when you change `frontend/` itself,
 not on every backend restart. For frontend development with hot reload instead, run `npm run dev`
 inside `frontend/` (proxies `/api`, `/health`, `/ready` to `http://localhost:8000`, so run the
 backend alongside it).
@@ -112,7 +112,7 @@ local models.
 
 ## Web console
 
-A single-page console is served at `http://localhost:8000/ui/`. An **Active Configuration** banner (effective providers, embedding model, chunking, top-k) sits atop every page; the sidebar walks the RAG phases.
+A single-page console is served at `http://localhost:8000/`. An **Active Configuration** banner (effective providers, embedding model, chunking, top-k) sits atop every page; the sidebar walks the RAG phases.
 
 | Settings — editable `.env` mirror | Indices — across all vector stores |
 | :---: | :---: |
